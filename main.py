@@ -111,15 +111,22 @@ class LeadGenerationOrchestrator:
             
             # Stage 1: Get search URLs and scrape raw contact data
             if campaign_id:
+                logging.info(f"🎯 Starting Campaign Mode for ID: {campaign_id}")
+                logging.info(f"🏢 Organization Context: {self.organization_id}")
+                
                 # Get search URLs for specific campaign
                 search_urls = self.supabase_manager.get_campaign_search_urls(campaign_id, status="pending")
+                logging.info(f"📊 Found {len(search_urls) if search_urls else 0} pending URLs for campaign")
+                
                 if search_urls:
                     # Update campaign status to running
                     self.supabase_manager.update_campaign_status(campaign_id, "active")
                     campaign_info = self.supabase_manager.get_campaign_by_id(campaign_id)
                     logging.info(f"📋 Campaign: {campaign_info.get('name', 'Unknown')} - {len(search_urls)} URLs to process")
+                    logging.info(f"🚀 STAGE 1: Starting Apollo scraping for campaign")
                 else:
-                    logging.warning(f"No pending URLs found in campaign {campaign_id}")
+                    logging.error(f"❌ CRITICAL: No pending URLs found in campaign {campaign_id}")
+                    logging.error(f"Organization ID was: {self.organization_id}")
                     return False
             else:
                 # Get all pending search URLs (legacy behavior)
@@ -153,6 +160,7 @@ class LeadGenerationOrchestrator:
                     # Step 1: Scrape ALL contacts and store raw data immediately
                     # Get record count from environment (set by server)
                     record_count = int(os.getenv('RECORD_COUNT', '500'))
+                    logging.info(f"🔄 STAGE 1: Apollo Scraping - Starting scrape")
                     logging.info(f"🔍 DEBUG: Starting Apollo scrape for search_url_id={search_url_id}")
                     logging.info(f"📊 Requesting {record_count} records from Apollo")
                     logging.info(f"🌐 Apollo URL: {search_url}")
@@ -204,6 +212,7 @@ class LeadGenerationOrchestrator:
                     continue
             
             # Stage 2: Process qualified raw contacts into leads
+            logging.info(f"🔄 STAGE 2: Website Research - Starting website scraping and summary generation")
             logging.info(f"🤖 Stage 2: Processing qualified contacts into leads with AI")
             processed_count = self._process_raw_contacts_to_leads()
             total_processed_leads += processed_count
@@ -257,6 +266,7 @@ class LeadGenerationOrchestrator:
                             
                         logging.info(f"🤖 [{batch_number}.{i}/10] Processing: {contact.get('name', 'Unknown')} ({contact.get('email', 'No email')})")
                         logging.info(f"📍 Progress: Batch {batch_number}, Contact {i} of {len(unprocessed_contacts)}")
+                        logging.info(f"🔄 STAGE 2: Processing contact {i} of {len(unprocessed_contacts)} - Researching websites")
                         
                         # Extract website and research it
                         website_url = contact.get('website_url', '')
@@ -299,6 +309,7 @@ class LeadGenerationOrchestrator:
                         }
                         
                         # Step 4: Generate icebreaker (ALWAYS ATTEMPT - even with limited data)
+                        logging.info(f"🔄 STAGE 3: Generating icebreaker {i} of {len(unprocessed_contacts)} - Creating AI-powered icebreaker")
                         logging.info(f"💬 [{batch_number}.{i}] Generating AI icebreaker for {contact.get('name')} {'(limited data)' if website_failed else ''}")
                         icebreaker_response = self.ai_processor.generate_icebreaker(contact_info, content_summaries)
                         
