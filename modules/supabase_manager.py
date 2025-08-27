@@ -7,17 +7,22 @@ from supabase import create_client, Client
 import config
 
 class SupabaseManager:
-    def __init__(self, supabase_url: str = None, supabase_key: str = None):
-        """Initialize Supabase client"""
+    def __init__(self, supabase_url: str = None, supabase_key: str = None, organization_id: str = None, audience_id: str = None):
+        """Initialize Supabase client with organization and audience context"""
         self.supabase_url = supabase_url or self._get_supabase_url()
         self.supabase_key = supabase_key or self._get_supabase_key()
+        self.organization_id = organization_id or config.CURRENT_ORGANIZATION_ID
+        self.audience_id = audience_id
         
         if not self.supabase_url or not self.supabase_key:
             raise ValueError("Supabase URL and key must be provided")
         
         try:
             self.client: Client = create_client(self.supabase_url, self.supabase_key)
-            logging.info("✅ Supabase client initialized successfully")
+            if self.organization_id:
+                logging.info(f"✅ Supabase client initialized for organization: {self.organization_id}")
+            else:
+                logging.info("✅ Supabase client initialized successfully (no organization context)")
         except Exception as e:
             logging.error(f"❌ Failed to initialize Supabase client: {e}")
             raise
@@ -35,12 +40,27 @@ class SupabaseManager:
         supabase_settings = ui_config.get('supabase', {})
         return supabase_settings.get('key') or os.getenv('SUPABASE_KEY')
 
+    async def execute_query(self, query: str, params: tuple = None) -> List[Dict[str, Any]]:
+        """Execute raw SQL query - compatibility method for phone system"""
+        try:
+            # Supabase Python client doesn't have direct SQL execution
+            # This is a workaround - in production, we'd use proper table methods
+            # For now, return empty list to prevent crashes
+            logging.warning(f"execute_query called with: {query[:100]}... - Not implemented with Supabase Python client")
+            return []
+        except Exception as e:
+            logging.error(f"Failed to execute query: {e}")
+            raise
+
     # Search URLs Management
     def find_or_create_search_url(self, url: str, notes: str = None) -> Dict[str, Any]:
-        """Find existing search URL or create a new one"""
+        """Find existing search URL or create a new one (within organization context)"""
         try:
-            # First, try to find existing search URL
-            existing = self.client.table("search_urls").select("*").eq("url", url).execute()
+            # First, try to find existing search URL within organization
+            query = self.client.table("search_urls").select("*").eq("url", url)
+            if self.organization_id:
+                query = query.eq("organization_id", self.organization_id)
+            existing = query.execute()
             
             if existing.data:
                 logging.info(f"🔍 Found existing search URL: {existing.data[0]['id']} - reusing for re-run")
@@ -63,7 +83,8 @@ class SupabaseManager:
             data = {
                 "url": url,
                 "status": "pending",
-                "notes": notes
+                "notes": notes,
+                "organization_id": self.organization_id
             }
             
             result = self.client.table("search_urls").insert(data).execute()
@@ -80,9 +101,12 @@ class SupabaseManager:
             return {}
 
     def get_search_urls(self, status: str = None) -> List[Dict[str, Any]]:
-        """Get search URLs, optionally filtered by status"""
+        """Get search URLs, optionally filtered by status (within organization context)"""
         try:
             query = self.client.table("search_urls").select("*")
+            
+            if self.organization_id:
+                query = query.eq("organization_id", self.organization_id)
             
             if status:
                 query = query.eq("status", status)
@@ -111,6 +135,70 @@ class SupabaseManager:
             
         except Exception as e:
             logging.error(f"Error updating search URL status: {e}")
+            return False
+
+    # Campaign Management
+    def get_campaigns(self, status: str = None) -> List[Dict[str, Any]]:
+        """Get campaigns, optionally filtered by status (within organization context)"""
+        try:
+            query = self.client.table("campaigns").select("*")
+            
+            if self.organization_id:
+                query = query.eq("organization_id", self.organization_id)
+            
+            if status:
+                query = query.eq("status", status)
+            
+            result = query.order("priority", desc=True).order("created_at", desc=True).execute()
+            return result.data or []
+            
+        except Exception as e:
+            logging.error(f"Error fetching campaigns: {e}")
+            return []
+
+    def get_campaign_by_id(self, campaign_id: str) -> Dict[str, Any]:
+        """Get a specific campaign by ID (within organization context)"""
+        try:
+            query = self.client.table("campaigns").select("*").eq("id", campaign_id)
+            if self.organization_id:
+                query = query.eq("organization_id", self.organization_id)
+            result = query.execute()
+            return result.data[0] if result.data else {}
+            
+        except Exception as e:
+            logging.error(f"Error fetching campaign {campaign_id}: {e}")
+            return {}
+
+    def get_campaign_search_urls(self, campaign_id: str, status: str = None) -> List[Dict[str, Any]]:
+        """Get search URLs for a specific campaign (within organization context)"""
+        try:
+            query = self.client.table("search_urls").select("*").eq("campaign_id", campaign_id)
+            
+            if self.organization_id:
+                query = query.eq("organization_id", self.organization_id)
+            
+            if status:
+                query = query.eq("status", status)
+            
+            result = query.order("created_at", desc=True).execute()
+            return result.data or []
+            
+        except Exception as e:
+            logging.error(f"Error fetching campaign search URLs: {e}")
+            return []
+
+    def update_campaign_status(self, campaign_id: str, status: str) -> bool:
+        """Update campaign status"""
+        try:
+            result = self.client.table("campaigns").update({
+                "status": status,
+                "updated_at": datetime.now().isoformat()
+            }).eq("id", campaign_id).execute()
+            
+            return len(result.data) > 0
+            
+        except Exception as e:
+            logging.error(f"Error updating campaign status: {e}")
             return False
 
     # Raw Contacts Management
@@ -142,7 +230,8 @@ class SupabaseManager:
                     "extrapolated_email_confidence": contact.get("extrapolated_email_confidence"),
                     "headline": contact.get("headline"),
                     "email": contact.get("email"),
-                    "organization_id": contact.get("organization_id"),
+                    "organization_id": self.organization_id,  # Use organization context, not contact data
+                    "audience_id": self.audience_id,  # Link contacts to the audience being scraped
                     "degree": contact.get("degree"),
                     "grade_level": contact.get("grade_level"),
                     "website_url": self._extract_website_url(contact),
@@ -267,7 +356,7 @@ class SupabaseManager:
         return ""
 
     def get_unprocessed_contacts(self, limit: int = 100, min_confidence: float = 0.7) -> List[Dict[str, Any]]:
-        """Get unprocessed contacts that meet quality criteria"""
+        """Get unprocessed contacts that meet quality criteria (within organization context)"""
         try:
             query = (
                 self.client.table("raw_contacts")
@@ -278,6 +367,9 @@ class SupabaseManager:
                 .neq("website_url", "")
                 .eq("email_status", "verified")  # Use verified email status instead of confidence
             )
+            
+            if self.organization_id:
+                query = query.eq("organization_id", self.organization_id)
             
             # Apply limit only if specified (None means get ALL contacts)
             if limit is not None:
@@ -315,7 +407,7 @@ class SupabaseManager:
     # Processed Leads Management
     def create_processed_lead(self, raw_contact_id: str, search_url_id: str, 
                             lead_data: Dict[str, Any], processing_settings: Dict[str, Any]) -> Dict[str, Any]:
-        """Create a processed lead with AI-generated content"""
+        """Create a processed lead with AI-generated content (within organization context)"""
         try:
             data = {
                 "raw_contact_id": raw_contact_id,
@@ -330,6 +422,7 @@ class SupabaseManager:
                 "icebreaker": lead_data.get("icebreaker", ""),
                 "website_summaries": lead_data.get("website_summaries", []),
                 "processing_settings_used": processing_settings,
+                "organization_id": self.organization_id,
                 "status": "new"
             }
             
@@ -355,12 +448,15 @@ class SupabaseManager:
             return {}
 
     def get_processed_leads(self, status: str = None, limit: int = 100) -> List[Dict[str, Any]]:
-        """Get processed leads, optionally filtered by status"""
+        """Get processed leads, optionally filtered by status (within organization context)"""
         try:
             query = (
                 self.client.table("processed_leads")
                 .select("*, raw_contacts!inner(linkedin_url, title), search_urls!inner(url)")
             )
+            
+            if self.organization_id:
+                query = query.eq("organization_id", self.organization_id)
             
             if status:
                 query = query.eq("status", status)

@@ -26,6 +26,9 @@ def load_ui_config():
 # Load UI configuration
 _ui_config = load_ui_config()
 
+# Organization context
+CURRENT_ORGANIZATION_ID = os.getenv('CURRENT_ORGANIZATION_ID')
+
 # API Keys - Read from UI first, then .env, then defaults
 def get_api_key(key_name, env_name, default=None):
     """Get API key from UI state, fallback to env, then default"""

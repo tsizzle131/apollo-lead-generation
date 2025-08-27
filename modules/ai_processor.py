@@ -148,7 +148,13 @@ class AIProcessor:
             # Parse JSON response
             import json
             parsed = json.loads(result)
-            icebreaker = parsed.get('icebreaker', '')
+            icebreaker = parsed.get('icebreaker', '').strip()
+            
+            # Validate icebreaker content
+            if not icebreaker or len(icebreaker) < 20:
+                logging.warning(f"AI returned empty/short icebreaker for {first_name} - creating fallback")
+                fallback = self._create_basic_fallback(first_name, headline)
+                return {"icebreaker": fallback}
             
             logging.info(f"Generated icebreaker for {first_name} {last_name}")
             return {"icebreaker": icebreaker}
@@ -196,10 +202,24 @@ class AIProcessor:
                 logging.error(f"❌ Network error retries exhausted for {first_name}")
                 return {"icebreaker": "Network error - could not generate icebreaker"}
         
-        # Unknown error - log and continue
+        # Unknown error - create basic fallback icebreaker
         else:
             logging.error(f"❌ Unknown AI error for {first_name}: {error}")
-            return {"icebreaker": "Error generating icebreaker"}
+            # Create a simple fallback based on contact info
+            first_name = contact_info.get('first_name', 'there')
+            headline = contact_info.get('headline', '')
+            if headline:
+                fallback = f"Hi {first_name},\n\nNoticed your work as {headline}. We're building something that might align with your expertise.\n\nInterested in a quick conversation?"
+            else:
+                fallback = f"Hi {first_name},\n\nCame across your profile and thought there might be some synergy with what we're working on.\n\nWould love to connect."
+            return {"icebreaker": fallback}
+    
+    def _create_basic_fallback(self, first_name: str, headline: str) -> str:
+        """Create a basic fallback icebreaker"""
+        if headline:
+            return f"Hi {first_name},\n\nNoticed your work as {headline}. Working on something that might be relevant to your expertise.\n\nWould love to connect and share what we're building."
+        else:
+            return f"Hi {first_name},\n\nCame across your profile and thought there might be some interesting synergy with what we're working on.\n\nWould you be open to a brief conversation?"
     
     def _retry_icebreaker_generation(self, contact_info: dict, website_summaries: list, attempt: int) -> dict:
         """Retry icebreaker generation with the same parameters"""

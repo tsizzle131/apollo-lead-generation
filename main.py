@@ -40,8 +40,8 @@ logging.basicConfig(
 )
 
 class LeadGenerationOrchestrator:
-    def __init__(self, use_supabase=True, use_sheets=False):
-        """Initialize all components"""
+    def __init__(self, use_supabase=True, use_sheets=False, organization_id=None):
+        """Initialize all components with organization context"""
         # Reload config to get latest UI settings
         config.reload_config()
         logging.info("🎛️  Using configuration from React UI control panel")
@@ -49,11 +49,20 @@ class LeadGenerationOrchestrator:
         # Initialize database managers
         self.use_supabase = use_supabase
         self.use_sheets = use_sheets
+        self.organization_id = organization_id or config.CURRENT_ORGANIZATION_ID
         
         if use_supabase:
             try:
-                self.supabase_manager = SupabaseManager()
-                logging.info("✅ Supabase initialized successfully")
+                # Get audience_id from environment if available (for audience scraping)
+                audience_id = os.getenv('AUDIENCE_ID')
+                self.supabase_manager = SupabaseManager(organization_id=self.organization_id, audience_id=audience_id)
+                if self.organization_id:
+                    org_msg = f"✅ Supabase initialized for organization: {self.organization_id}"
+                    if audience_id:
+                        org_msg += f" with audience: {audience_id}"
+                    logging.info(org_msg)
+                else:
+                    logging.info("✅ Supabase initialized successfully (no organization context)")
             except Exception as e:
                 logging.warning(f"Could not initialize Supabase: {e}")
                 logging.info("Falling back to legacy mode")
@@ -78,24 +87,43 @@ class LeadGenerationOrchestrator:
         self.web_scraper = WebScraper()
         self.ai_processor = AIProcessor()  # Will automatically load latest API key
         
-    def run_workflow(self) -> bool:
+    def run_workflow(self, campaign_id: str = None) -> bool:
         """
         Run the complete lead generation workflow using Supabase two-stage pipeline
         
         Stage 1: Scrape and store ALL raw contact data
         Stage 2: Process qualified contacts into leads with AI icebreakers
         
+        Args:
+            campaign_id: Optional campaign ID to process specific campaign URLs
+        
         Returns:
             bool: True if successful, False otherwise
         """
         try:
-            logging.info("🚀 Starting enhanced lead generation workflow with Supabase")
+            if campaign_id:
+                logging.info(f"🎯 Starting campaign workflow for campaign: {campaign_id}")
+            else:
+                logging.info("🚀 Starting enhanced lead generation workflow with Supabase")
             
             if not self.use_supabase:
                 return self._run_legacy_workflow()
             
             # Stage 1: Get search URLs and scrape raw contact data
-            search_urls = self.supabase_manager.get_search_urls(status="pending")
+            if campaign_id:
+                # Get search URLs for specific campaign
+                search_urls = self.supabase_manager.get_campaign_search_urls(campaign_id, status="pending")
+                if search_urls:
+                    # Update campaign status to running
+                    self.supabase_manager.update_campaign_status(campaign_id, "active")
+                    campaign_info = self.supabase_manager.get_campaign_by_id(campaign_id)
+                    logging.info(f"📋 Campaign: {campaign_info.get('name', 'Unknown')} - {len(search_urls)} URLs to process")
+                else:
+                    logging.warning(f"No pending URLs found in campaign {campaign_id}")
+                    return False
+            else:
+                # Get all pending search URLs (legacy behavior)
+                search_urls = self.supabase_manager.get_search_urls(status="pending")
             
             if not search_urls:
                 # Create a default search URL for testing
@@ -232,30 +260,36 @@ class LeadGenerationOrchestrator:
                         
                         # Extract website and research it
                         website_url = contact.get('website_url', '')
-                        if not website_url:
+                        content_summaries = []
+                        website_failed = False
+                        
+                        # Step 1: Scrape and summarize website (OPTIONAL - proceed even if fails)
+                        if website_url:
+                            logging.info(f"🌐 [{batch_number}.{i}] Scraping website: {website_url}")
+                            try:
+                                website_data = self.web_scraper.scrape_website_content(website_url)
+                                page_summaries = website_data.get('summaries', [])
+                                
+                                if page_summaries:
+                                    # Step 2: Generate AI summaries of website content  
+                                    logging.info(f"🧠 [{batch_number}.{i}] Generating AI summaries for website content")
+                                    logging.info(f"🔍 DEBUG: page_summaries type: {type(page_summaries)}, length: {len(page_summaries) if hasattr(page_summaries, '__len__') else 'N/A'}")
+                                    content_summaries = self.ai_processor.summarize_website_pages(page_summaries)
+                                    logging.info(f"🔍 DEBUG: content_summaries type: {type(content_summaries)}, length: {len(content_summaries) if hasattr(content_summaries, '__len__') else 'N/A'}")
+                                else:
+                                    logging.warning(f"⚠️ Website scraping failed for {website_url} (blocked/inaccessible)")
+                                    website_failed = True
+                                    content_summaries = ["Website content not available - site may be protected or blocked"]
+                            except Exception as website_error:
+                                logging.warning(f"⚠️ Website scraping exception for {website_url}: {website_error}")
+                                website_failed = True
+                                content_summaries = ["Website content not available - scraping failed"]
+                        else:
                             logging.warning(f"No website URL for contact {contact.get('name')}")
-                            # Mark as processed even if failed
-                            self.supabase_manager.mark_contact_processed(contact['id'])
-                            continue
-                    
-                        # Step 1: Scrape and summarize website
-                        logging.info(f"🌐 [{batch_number}.{i}] Scraping website: {website_url}")
-                        website_data = self.web_scraper.scrape_website_content(website_url)
-                        page_summaries = website_data.get('summaries', [])
+                            website_failed = True
+                            content_summaries = ["No website URL available"]
                         
-                        if not page_summaries:
-                            logging.warning(f"⚠️ Website scraping failed for {website_url} (blocked/inaccessible)")
-                            logging.info(f"📝 Keeping raw data for {contact.get('name')} - marked as processed")
-                            self.supabase_manager.mark_contact_processed(contact['id'])
-                            continue
-                        
-                        # Step 2: Generate AI summaries of website content  
-                        logging.info(f"🧠 [{batch_number}.{i}] Generating AI summaries for website content")
-                        logging.info(f"🔍 DEBUG: page_summaries type: {type(page_summaries)}, length: {len(page_summaries) if hasattr(page_summaries, '__len__') else 'N/A'}")
-                        content_summaries = self.ai_processor.summarize_website_pages(page_summaries)
-                        logging.info(f"🔍 DEBUG: content_summaries type: {type(content_summaries)}, length: {len(content_summaries) if hasattr(content_summaries, '__len__') else 'N/A'}")
-                        
-                        # Step 3: Prepare contact data for icebreaker generation
+                        # Step 3: Prepare contact data for icebreaker generation (ALWAYS PROCEED)
                         contact_info = {
                             'first_name': contact.get('name', '').split(' ')[0] if contact.get('name') else '',
                             'last_name': contact.get('last_name', ''),
@@ -264,14 +298,16 @@ class LeadGenerationOrchestrator:
                             'website_summaries': content_summaries
                         }
                         
-                        # Step 4: Generate icebreaker
-                        logging.info(f"💬 [{batch_number}.{i}] Generating AI icebreaker for {contact.get('name')}")
+                        # Step 4: Generate icebreaker (ALWAYS ATTEMPT - even with limited data)
+                        logging.info(f"💬 [{batch_number}.{i}] Generating AI icebreaker for {contact.get('name')} {'(limited data)' if website_failed else ''}")
                         icebreaker_response = self.ai_processor.generate_icebreaker(contact_info, content_summaries)
                         
+                        # ENHANCED: Never skip leads - always create a lead entry
                         if not icebreaker_response or not icebreaker_response.get('icebreaker'):
-                            logging.warning(f"No icebreaker generated for {contact.get('name')}")
-                            self.supabase_manager.mark_contact_processed(contact['id'])
-                            continue
+                            logging.warning(f"AI icebreaker failed for {contact.get('name')} - using fallback")
+                            # Create a fallback icebreaker based on available contact info
+                            fallback_icebreaker = self._create_fallback_icebreaker(contact_info)
+                            icebreaker_response = {"icebreaker": fallback_icebreaker}
                         
                         # Step 5: Prepare lead data
                         lead_data = {
@@ -330,9 +366,55 @@ class LeadGenerationOrchestrator:
                             import traceback
                             logging.error(f"🔍 DEBUG: Full traceback: {traceback.format_exc()}")
                         
-                        logging.info(f"📝 Keeping raw data for {contact.get('name') if isinstance(contact, dict) else 'Unknown'} - marked as processed")
-                        # Mark as processed even if failed to avoid reprocessing
+                        logging.warning(f"⚠️ Exception during processing {contact.get('name') if isinstance(contact, dict) else 'Unknown'} - creating fallback lead")
+                        # ENHANCED: Create a fallback lead even when processing fails
                         if isinstance(contact, dict) and 'id' in contact:
+                            try:
+                                fallback_contact_info = {
+                                    'first_name': contact.get('name', '').split(' ')[0] if contact.get('name') else 'Contact',
+                                    'last_name': contact.get('last_name', ''),
+                                    'headline': contact.get('title', '') or contact.get('headline', ''),
+                                    'location': f"{contact.get('city', '')} {contact.get('country', '')}".strip(),
+                                    'website_summaries': ["Processing failed - unable to analyze website"]
+                                }
+                                
+                                fallback_icebreaker = self._create_fallback_icebreaker(fallback_contact_info)
+                                
+                                fallback_lead_data = {
+                                    'first_name': fallback_contact_info['first_name'],
+                                    'last_name': fallback_contact_info['last_name'],
+                                    'email': contact.get('email', ''),
+                                    'linkedin_url': contact.get('linkedin_url', ''),
+                                    'headline': fallback_contact_info['headline'],
+                                    'website_url': contact.get('website_url', ''),
+                                    'location': fallback_contact_info['location'],
+                                    'icebreaker': fallback_icebreaker,
+                                    'website_summaries': ["Error during processing - fallback lead"]
+                                }
+                                
+                                processing_settings = {
+                                    'ai_model_summary': 'fallback',
+                                    'ai_model_icebreaker': 'fallback',
+                                    'ai_temperature': 0.5,
+                                    'delay_between_ai_calls': config.DELAY_BETWEEN_AI_CALLS,
+                                    'min_confidence': 0.0,
+                                    'processing_status': 'error_fallback'
+                                }
+                                
+                                fallback_lead = self.supabase_manager.create_processed_lead(
+                                    contact['id'],
+                                    contact['search_url_id'],
+                                    fallback_lead_data,
+                                    processing_settings
+                                )
+                                
+                                if fallback_lead:
+                                    batch_leads_created += 1
+                                    logging.info(f"✅ [{batch_number}.{i}] FALLBACK SUCCESS: Created fallback lead for {fallback_contact_info['first_name']}")
+                                
+                            except Exception as fallback_error:
+                                logging.error(f"❌ Even fallback lead creation failed: {fallback_error}")
+                                
                             self.supabase_manager.mark_contact_processed(contact['id'])
                         continue
             
@@ -352,6 +434,30 @@ class LeadGenerationOrchestrator:
         except Exception as e:
             logging.error(f"❌ Error in raw contacts processing: {e}")
             return 0
+    
+    def _create_fallback_icebreaker(self, contact_info: Dict[str, Any]) -> str:
+        """
+        Create a fallback icebreaker when AI generation fails or website data is unavailable
+        
+        Args:
+            contact_info: Basic contact information
+            
+        Returns:
+            str: Simple personalized icebreaker based on available data
+        """
+        first_name = contact_info.get('first_name', 'there')
+        headline = contact_info.get('headline', '')
+        location = contact_info.get('location', '')
+        
+        # Create different fallback templates based on available data
+        if headline and location:
+            return f"Hi {first_name},\n\nSaw your profile as {headline} in {location}. Working on something in your space that might be relevant.\n\nWould love to connect and share what we're building."
+        elif headline:
+            return f"Hi {first_name},\n\nNoticed your work as {headline}. We're building something that aligns with your expertise.\n\nInterested in a quick chat about potential synergies?"
+        elif location:
+            return f"Hi {first_name},\n\nConnecting with professionals in {location}. Working on something that might interest your network.\n\nOpen to a brief conversation?"
+        else:
+            return f"Hi {first_name},\n\nCame across your profile and thought there might be some interesting overlap with what we're working on.\n\nWould you be open to a brief conversation?"
     
     def _run_legacy_workflow(self) -> bool:
         """Legacy workflow for Google Sheets compatibility"""
@@ -516,8 +622,15 @@ class LeadGenerationOrchestrator:
 def main():
     """Main entry point"""
     try:
-        # Try Supabase first (new default)
-        orchestrator = LeadGenerationOrchestrator(use_supabase=True, use_sheets=False)
+        # Get organization context from environment (set by server)
+        organization_id = os.getenv('CURRENT_ORGANIZATION_ID')
+        
+        # Try Supabase first (new default) with organization context
+        orchestrator = LeadGenerationOrchestrator(
+            use_supabase=True, 
+            use_sheets=False, 
+            organization_id=organization_id
+        )
     except Exception as e:
         logging.error(f"Failed to initialize orchestrator with Supabase: {e}")
         # Fallback to legacy mode without any database
@@ -551,8 +664,20 @@ def main():
                 orchestrator.run_workflow()
             else:
                 logging.error("Cannot run full workflow without database. Use 'test' mode instead.")
+        elif sys.argv[1] == "campaign":
+            # Run campaign workflow
+            campaign_id = os.getenv('CAMPAIGN_ID')
+            if not campaign_id:
+                logging.error("Campaign ID not provided. Set CAMPAIGN_ID environment variable.")
+                return
+            
+            if orchestrator.use_supabase:
+                logging.info(f"🎯 Starting campaign execution for: {campaign_id}")
+                orchestrator.run_workflow(campaign_id=campaign_id)
+            else:
+                logging.error("Campaign mode requires Supabase to be enabled.")
         else:
-            print("Usage: python main.py [test|once]")
+            print("Usage: python main.py [test|once|campaign]")
     else:
         # Default: run workflow once
         if orchestrator.use_supabase or orchestrator.use_sheets:
