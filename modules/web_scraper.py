@@ -3,10 +3,16 @@ import logging
 import time
 import random
 from typing import List, Dict, Any, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from bs4 import BeautifulSoup
 from markdownify import markdownify as md
 from urllib.parse import urljoin, urlparse
-from config import USER_AGENTS, REQUEST_TIMEOUT, MAX_RETRIES, DELAY_BETWEEN_REQUESTS, MAX_LINKS_PER_SITE, WEBSITE_TIMEOUT, WEBSITE_MAX_RETRIES
+from config import (
+    USER_AGENTS, REQUEST_TIMEOUT, MAX_RETRIES, DELAY_BETWEEN_REQUESTS, 
+    MAX_LINKS_PER_SITE, WEBSITE_TIMEOUT, WEBSITE_MAX_RETRIES,
+    MAX_WEBSITE_WORKERS, ENABLE_PARALLEL_PROCESSING
+)
+from rate_limiter import rate_limiter
 
 class WebScraper:
     def __init__(self):
@@ -14,7 +20,7 @@ class WebScraper:
         
     def scrape_website_content(self, website_url: str) -> Dict[str, Any]:
         """
-        Scrape website content and extract internal links
+        Scrape website content and extract internal links (with domain throttling)
         
         Args:
             website_url: The website URL to scrape
@@ -23,42 +29,34 @@ class WebScraper:
             Dictionary containing extracted links and content summaries
         """
         try:
+            domain = urlparse(website_url).netloc
+            
+            # Check if domain is blocked
+            if rate_limiter.domain_throttler.is_domain_blocked(domain):
+                logging.warning(f"Domain {domain} is blocked due to repeated failures")
+                return {"links": [], "summaries": []}
+            
             logging.info(f"Starting website research for: {website_url}")
             
-            # Step 1: Scrape the homepage
-            homepage_content = self._scrape_page(website_url)
+            # Step 1: Scrape the homepage with domain throttling
+            homepage_content = self._scrape_page_with_throttle(website_url)
             if not homepage_content:
                 return {"links": [], "summaries": []}
             
             # Step 2: Extract internal links
             internal_links = self._extract_internal_links(homepage_content, website_url)
             
-            # Step 3: Filter and clean links (replicate your n8n logic)
+            # Step 3: Filter and clean links
             filtered_links = self._filter_links(internal_links)
             
-            # Step 4: Limit to max links and scrape each page
+            # Step 4: Limit to max links and scrape pages
             limited_links = filtered_links[:MAX_LINKS_PER_SITE]
-            page_summaries = []
             
-            for link in limited_links:
-                try:
-                    full_url = urljoin(website_url, link)
-                    page_content = self._scrape_page(full_url)
-                    
-                    if page_content:
-                        # Convert to markdown
-                        markdown_content = self._html_to_markdown(page_content)
-                        page_summaries.append({
-                            'url': full_url,
-                            'content': markdown_content
-                        })
-                    
-                    # Rate limiting
-                    time.sleep(DELAY_BETWEEN_REQUESTS)
-                    
-                except Exception as e:
-                    logging.warning(f"Failed to scrape {link}: {e}")
-                    continue
+            # Use parallel or sequential scraping based on config
+            if ENABLE_PARALLEL_PROCESSING and len(limited_links) > 1:
+                page_summaries = self._scrape_pages_parallel(website_url, limited_links)
+            else:
+                page_summaries = self._scrape_pages_sequential(website_url, limited_links)
             
             logging.info(f"Successfully scraped {len(page_summaries)} pages from {website_url}")
             
@@ -69,7 +67,69 @@ class WebScraper:
             
         except Exception as e:
             logging.error(f"Error scraping website {website_url}: {e}")
+            domain = urlparse(website_url).netloc
+            rate_limiter.mark_website_failed(domain)
             return {"links": [], "summaries": []}
+    
+    def _scrape_pages_parallel(self, base_url: str, links: List[str]) -> List[Dict[str, Any]]:
+        """Scrape multiple pages in parallel with domain throttling"""
+        page_summaries = []
+        
+        # Since all links are from same domain, we need to serialize them
+        # but we can process the markdown conversion in parallel
+        for link in links:
+            try:
+                full_url = urljoin(base_url, link)
+                page_content = self._scrape_page_with_throttle(full_url)
+                
+                if page_content:
+                    # Convert to markdown
+                    markdown_content = self._html_to_markdown(page_content)
+                    page_summaries.append({
+                        'url': full_url,
+                        'content': markdown_content
+                    })
+            except Exception as e:
+                logging.warning(f"Failed to scrape {link}: {e}")
+                continue
+        
+        return page_summaries
+    
+    def _scrape_pages_sequential(self, base_url: str, links: List[str]) -> List[Dict[str, Any]]:
+        """Original sequential scraping method"""
+        page_summaries = []
+        
+        for link in links:
+            try:
+                full_url = urljoin(base_url, link)
+                page_content = self._scrape_page_with_throttle(full_url)
+                
+                if page_content:
+                    # Convert to markdown
+                    markdown_content = self._html_to_markdown(page_content)
+                    page_summaries.append({
+                        'url': full_url,
+                        'content': markdown_content
+                    })
+                
+            except Exception as e:
+                logging.warning(f"Failed to scrape {link}: {e}")
+                continue
+        
+        return page_summaries
+    
+    def _scrape_page_with_throttle(self, url: str) -> Optional[str]:
+        """Scrape a page with domain throttling"""
+        domain = urlparse(url).netloc
+        
+        # Wait for domain throttling
+        try:
+            rate_limiter.wait_for_website(domain)
+        except Exception as e:
+            logging.warning(f"Domain {domain} is blocked: {e}")
+            return None
+        
+        return self._scrape_page(url)
     
     def _scrape_page(self, url: str) -> Optional[str]:
         """Scrape a single page and return HTML content"""

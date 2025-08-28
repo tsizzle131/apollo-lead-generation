@@ -1,12 +1,14 @@
 import logging
 import time
 from typing import List, Dict, Any, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from openai import OpenAI
 from config import (
     OPENAI_API_KEY, AI_MODEL_SUMMARY, AI_MODEL_ICEBREAKER, 
     AI_TEMPERATURE, DELAY_BETWEEN_AI_CALLS, SUMMARY_PROMPT, 
-    ICEBREAKER_PROMPT, reload_config
+    ICEBREAKER_PROMPT, reload_config, MAX_AI_WORKERS
 )
+from rate_limiter import rate_limiter
 
 class AIProcessor:
     def __init__(self, api_key: str = None):
@@ -21,7 +23,7 @@ class AIProcessor:
         
     def summarize_website_pages(self, page_summaries: List[Dict[str, Any]]) -> List[str]:
         """
-        Summarize multiple website pages using AI
+        Summarize multiple website pages using AI (now with parallel processing)
         
         Args:
             page_summaries: List of dictionaries with 'url' and 'content' keys
@@ -29,8 +31,44 @@ class AIProcessor:
         Returns:
             List of summary strings
         """
-        summaries = []
+        if not page_summaries:
+            return []
         
+        # Check if parallel processing is enabled
+        from config import ENABLE_PARALLEL_PROCESSING
+        if not ENABLE_PARALLEL_PROCESSING:
+            # Fallback to sequential processing
+            return self._summarize_pages_sequential(page_summaries)
+        
+        summaries = [None] * len(page_summaries)  # Pre-allocate list to maintain order
+        
+        with ThreadPoolExecutor(max_workers=min(MAX_AI_WORKERS, len(page_summaries))) as executor:
+            # Submit all summarization tasks
+            future_to_index = {}
+            for i, page in enumerate(page_summaries):
+                content = page.get('content', '')
+                if not content or content.strip() == '<div>empty</div>':
+                    summaries[i] = "no content"
+                    continue
+                
+                future = executor.submit(self._generate_page_summary_with_rate_limit, content)
+                future_to_index[future] = i
+            
+            # Collect results as they complete
+            for future in as_completed(future_to_index):
+                index = future_to_index[future]
+                try:
+                    summary = future.result()
+                    summaries[index] = summary
+                except Exception as e:
+                    logging.error(f"Error summarizing page {page_summaries[index].get('url', 'unknown')}: {e}")
+                    summaries[index] = "no content"
+        
+        return summaries
+    
+    def _summarize_pages_sequential(self, page_summaries: List[Dict[str, Any]]) -> List[str]:
+        """Fallback sequential processing"""
+        summaries = []
         for page in page_summaries:
             try:
                 content = page.get('content', '')
@@ -41,16 +79,25 @@ class AIProcessor:
                 summary = self._generate_page_summary(content)
                 summaries.append(summary)
                 
-                # Rate limiting between AI calls - get latest delay from UI
+                # Use rate limiter instead of fixed delay
                 reload_config()
-                from config import DELAY_BETWEEN_AI_CALLS
-                time.sleep(DELAY_BETWEEN_AI_CALLS)
+                from config import AI_MODEL_SUMMARY
+                rate_limiter.wait_for_openai(AI_MODEL_SUMMARY)
                 
             except Exception as e:
                 logging.error(f"Error summarizing page {page.get('url', 'unknown')}: {e}")
                 summaries.append("no content")
-                
+        
         return summaries
+    
+    def _generate_page_summary_with_rate_limit(self, content: str) -> str:
+        """Generate a summary with rate limiting"""
+        # Wait for rate limit
+        reload_config()
+        from config import AI_MODEL_SUMMARY
+        rate_limiter.wait_for_openai(AI_MODEL_SUMMARY)
+        
+        return self._generate_page_summary(content)
     
     def _generate_page_summary(self, content: str) -> str:
         """Generate a summary for a single page"""
@@ -62,7 +109,7 @@ class AIProcessor:
             messages = [
                 {
                     "role": "system",
-                    "content": "You're a helpful, intelligent website scraping assistant."
+                    "content": "You're a helpful, intelligent website scraping assistant. Always return responses in JSON format."
                 },
                 {
                     "role": "user", 
@@ -92,16 +139,16 @@ class AIProcessor:
             logging.error(f"Error generating page summary: {e}")
             return "no content"
     
-    def generate_icebreaker(self, contact_info: Dict[str, Any], website_summaries: List[str]) -> str:
+    def generate_icebreaker(self, contact_info: Dict[str, Any], website_summaries: List[str]) -> Dict[str, str]:
         """
-        Generate a personalized icebreaker for a contact
+        Generate a personalized icebreaker AND subject line for a contact
         
         Args:
             contact_info: Contact information dictionary
             website_summaries: List of website page summaries
             
         Returns:
-            Generated icebreaker string
+            Dictionary with 'icebreaker' and 'subject_line' keys
         """
         try:
             # Reload config to get latest prompts and settings from UI
@@ -113,22 +160,59 @@ class AIProcessor:
             last_name = contact_info.get('last_name', '')
             headline = contact_info.get('headline', '')
             location = contact_info.get('location', '')
+            company_name = contact_info.get('company_name', contact_info.get('company', ''))
             
             profile = f"{first_name} {last_name} {headline}"
+            if company_name:
+                profile += f" at {company_name}"
+            
             website_content = "\n".join(website_summaries)
+            
+            # Enhanced prompt that requests both icebreaker and subject line
+            enhanced_prompt = ICEBREAKER_PROMPT + """
+
+ADDITIONALLY, create a compelling email subject line that:
+1. Is 30-50 characters MAX (mobile-optimized)
+2. Be DIRECT and create genuine curiosity
+3. Avoid clickbait and marketing speak
+
+Subject line approaches (pick what feels most natural):
+- Question format: "Quick question about [Company]'s [specific thing]"
+- Observation: "Noticed [Company]'s [specific approach/strategy]"
+- Connection: "[Company] + [relevant solution/topic]?"
+- Direct with name: "[Name], question about [specific area]"
+- Specific reference (ONLY if highly relevant): Recent funding/news/expansion
+
+BAD examples (avoid these):
+- "[Company]'s edge in [industry]" (too vague)
+- "Transform your [thing]" (sounds spammy)
+- "Unlock growth potential" (generic marketing)
+
+GOOD examples (aim for these):
+- "Mike, quick question about GrowthLab's SEO"
+- "Noticed GrowthLab's content strategy"
+- "GrowthLab + scaling B2B outreach?"
+- "Question about your SaaS clients"
+- "Congrats on the Series B!" (only if they actually raised funding)
+
+Return your response in this EXACT JSON format:
+{
+  "icebreaker": "your personalized icebreaker message",
+  "subject_line": "your direct, curiosity-driven subject line (30-50 chars)"
+}"""
             
             messages = [
                 {
                     "role": "system",
-                    "content": "You're a helpful, intelligent sales assistant."
+                    "content": "You're a helpful, intelligent sales assistant. Always return responses in valid JSON format with both 'icebreaker' and 'subject_line' fields."
                 },
                 {
                     "role": "user",
-                    "content": ICEBREAKER_PROMPT
+                    "content": enhanced_prompt
                 },
                 {
                     "role": "assistant",
-                    "content": """{"icebreaker":"Hey Aina,\\n\\nLove what you're doing at Maki. Also doing some outsourcing right now, wanted to run something by you.\\n\\nSo I hope you'll forgive me, but I creeped you/Maki quite a bit. I know that discretion is important to you guys (or at least I'm assuming this given the part on your website about white-labelling your services) and I put something together a few months ago that I think could help. To make a long story short, it's an outreach system that uses AI to find people hiring website devs. Then pitches them with templates (actually makes them a white-labelled demo website). Costs just a few cents to run, very high converting, and I think it's in line with Maki's emphasis on scalability."}"""
+                    "content": """{"icebreaker":"Hey Aina,\\n\\nLove what you're doing at Maki. Also doing some outsourcing right now, wanted to run something by you.\\n\\nSo I hope you'll forgive me, but I creeped you/Maki quite a bit. I know that discretion is important to you guys (or at least I'm assuming this given the part on your website about white-labelling your services) and I put something together a few months ago that I think could help. To make a long story short, it's an outreach system that uses AI to find people hiring website devs. Then pitches them with templates (actually makes them a white-labelled demo website). Costs just a few cents to run, very high converting, and I think it's in line with Maki's emphasis on scalability.","subject_line":"Quick question about Maki's scaling"}"""
                 },
                 {
                     "role": "user",
@@ -145,19 +229,40 @@ class AIProcessor:
             
             result = response.choices[0].message.content
             
-            # Parse JSON response
+            # Parse JSON response with robust error handling
             import json
-            parsed = json.loads(result)
+            try:
+                parsed = json.loads(result)
+            except json.JSONDecodeError as e:
+                logging.error(f"Failed to parse AI response as JSON: {e}")
+                logging.error(f"Raw response: {result}")
+                # Fallback to basic parsing
+                parsed = {"icebreaker": result, "subject_line": f"Quick question, {first_name}"}
+            
             icebreaker = parsed.get('icebreaker', '').strip()
+            subject_line = parsed.get('subject_line', '').strip()
+            
+            # Validate and potentially fix subject line
+            if not subject_line:
+                # Generate fallback subject if missing
+                if company_name:
+                    subject_line = f"Quick question about {company_name[:20]}"
+                else:
+                    subject_line = f"Quick question, {first_name}"
+            
+            # Ensure subject line isn't too long (trim if needed)
+            if len(subject_line) > 60:
+                subject_line = subject_line[:57] + "..."
             
             # Validate icebreaker content
             if not icebreaker or len(icebreaker) < 20:
                 logging.warning(f"AI returned empty/short icebreaker for {first_name} - creating fallback")
                 fallback = self._create_basic_fallback(first_name, headline)
-                return {"icebreaker": fallback}
+                return {"icebreaker": fallback, "subject_line": subject_line or f"Quick question, {first_name}"}
             
-            logging.info(f"Generated icebreaker for {first_name} {last_name}")
-            return {"icebreaker": icebreaker}
+            logging.info(f"Generated icebreaker and subject for {first_name} {last_name}")
+            logging.debug(f"Subject line ({len(subject_line)} chars): {subject_line}")
+            return {"icebreaker": icebreaker, "subject_line": subject_line}
             
         except Exception as e:
             # Smart retry logic for rate limits and temporary errors
@@ -178,7 +283,7 @@ class AIProcessor:
                 return self._retry_icebreaker_generation(contact_info, website_summaries, attempt + 1)
             else:
                 logging.error(f"❌ Rate limit retries exhausted for {first_name}")
-                return {"icebreaker": "Rate limit exceeded - could not generate icebreaker"}
+                return {"icebreaker": "Rate limit exceeded - could not generate icebreaker", "subject_line": f"Quick question, {first_name}"}
         
         # Server errors (500, 502, 503) - exponential backoff
         elif any(code in error_str for code in ["500", "502", "503", "server"]):
@@ -189,7 +294,7 @@ class AIProcessor:
                 return self._retry_icebreaker_generation(contact_info, website_summaries, attempt + 1)
             else:
                 logging.error(f"❌ Server error retries exhausted for {first_name}")
-                return {"icebreaker": "Server error - could not generate icebreaker"}
+                return {"icebreaker": "Server error - could not generate icebreaker", "subject_line": f"Quick question, {first_name}"}
         
         # Timeout or network errors - quick retry
         elif any(term in error_str for term in ["timeout", "network", "connection"]):
@@ -200,7 +305,7 @@ class AIProcessor:
                 return self._retry_icebreaker_generation(contact_info, website_summaries, attempt + 1)
             else:
                 logging.error(f"❌ Network error retries exhausted for {first_name}")
-                return {"icebreaker": "Network error - could not generate icebreaker"}
+                return {"icebreaker": "Network error - could not generate icebreaker", "subject_line": f"Quick question, {first_name}"}
         
         # Unknown error - create basic fallback icebreaker
         else:
@@ -212,7 +317,7 @@ class AIProcessor:
                 fallback = f"Hi {first_name},\n\nNoticed your work as {headline}. We're building something that might align with your expertise.\n\nInterested in a quick conversation?"
             else:
                 fallback = f"Hi {first_name},\n\nCame across your profile and thought there might be some synergy with what we're working on.\n\nWould love to connect."
-            return {"icebreaker": fallback}
+            return {"icebreaker": fallback, "subject_line": f"Quick question, {first_name}"}
     
     def _create_basic_fallback(self, first_name: str, headline: str) -> str:
         """Create a basic fallback icebreaker"""
@@ -241,7 +346,7 @@ class AIProcessor:
             messages = [
                 {
                     "role": "system",
-                    "content": "You're a helpful, intelligent sales assistant."
+                    "content": "You're a helpful, intelligent sales assistant. Always return responses in JSON format."
                 },
                 {
                     "role": "user",

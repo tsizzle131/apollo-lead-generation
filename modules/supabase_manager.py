@@ -420,6 +420,7 @@ class SupabaseManager:
                 "website_url": lead_data.get("website_url", ""),
                 "location": lead_data.get("location", ""),
                 "icebreaker": lead_data.get("icebreaker", ""),
+                "subject_line": lead_data.get("subject_line", ""),
                 "website_summaries": lead_data.get("website_summaries", []),
                 "processing_settings_used": processing_settings,
                 "organization_id": self.organization_id,

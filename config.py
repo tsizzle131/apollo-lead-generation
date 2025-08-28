@@ -73,6 +73,20 @@ SCHEDULE_INTERVAL_MINUTES = 15
 DELAY_BETWEEN_REQUESTS = 1  # seconds
 DELAY_BETWEEN_AI_CALLS = get_ai_setting('delay_between_ai_calls', 5)  # seconds - reduced from 45s for speed
 
+# Concurrency settings for parallel processing
+MAX_WEBSITE_WORKERS = 3  # Conservative limit for website scraping (avoid IP blocking)
+MAX_AI_WORKERS = 10  # Aggressive limit for OpenAI API calls
+MAX_CONTACTS_PARALLEL = 5  # Number of contacts to process in parallel
+ENABLE_PARALLEL_PROCESSING = True  # Master switch for parallel processing
+
+# OpenAI Rate Limits (requests per minute)
+OPENAI_GPT4_RPM = 10000  # GPT-4o rate limit
+OPENAI_GPT4_MINI_RPM = 30000  # GPT-4o-mini rate limit
+
+# Domain throttling
+DOMAIN_REQUEST_DELAY = 2.0  # Minimum seconds between requests to same domain
+WEBSITE_FAILURE_THRESHOLD = 3  # Mark domain as failed after this many consecutive failures
+
 # Prompts - Read from UI state
 def get_prompt(prompt_type, default=""):
     """Get prompt from UI state, fallback to default"""
@@ -90,7 +104,74 @@ Rules:
 - Use a straightforward, spartan tone of voice.
 - If it's empty, just say "no content".""")
 
-ICEBREAKER_PROMPT = get_prompt('icebreaker', """We just scraped a series of web pages for a business called . Your task is to take their summaries and turn them into catchy, personalized openers for a cold email campaign to imply that the rest of the campaign is personalized.
+def get_organization_prompt():
+    """Get icebreaker prompt from organization's custom prompt or use default"""
+    org_id = os.getenv('CURRENT_ORGANIZATION_ID')
+    
+    if org_id and 'supabase' in _ui_config:
+        try:
+            import requests
+            import json
+            
+            # Try to fetch organization's custom prompt
+            url = _ui_config['supabase']['url']
+            key = _ui_config['supabase']['key']
+            
+            if url and key:
+                response = requests.get(
+                    f"{url}/rest/v1/organizations?id=eq.{org_id}&select=custom_icebreaker_prompt,product_name,product_description,value_proposition,target_audience,messaging_tone",
+                    headers={
+                        'apikey': key,
+                        'Authorization': f'Bearer {key}'
+                    }
+                )
+                
+                if response.ok:
+                    orgs = response.json()
+                    if orgs and len(orgs) > 0:
+                        org = orgs[0]
+                        
+                        # If organization has a custom prompt, use it
+                        if org.get('custom_icebreaker_prompt'):
+                            logging.info(f"✅ Using custom icebreaker prompt for organization {org_id}")
+                            return org['custom_icebreaker_prompt']
+                        
+                        # If organization has product config, build dynamic prompt
+                        if org.get('product_name'):
+                            logging.info(f"🎯 Building dynamic prompt for {org.get('product_name')}")
+                            return f"""You're writing the opening lines of a cold email for {org.get('product_name', 'our product')}.
+
+**The Person:**
+Name: {{first_name}} {{last_name}}
+Role: {{headline}}
+Company: {{company_name}}
+Location: {{location}}
+
+**What you learned about their company:**
+{{website_summaries}}
+
+**Your Product/Service:**
+- Name: {org.get('product_name', 'Our Product')}
+- Description: {org.get('product_description', 'Product/service')}
+- Value: {org.get('value_proposition', 'Helps businesses grow')}
+- Target: {org.get('target_audience', 'Businesses')}
+
+**Your Job:**
+Write 2-3 sentences that:
+1. Reference ONE specific thing about their business
+2. Connect it to how {org.get('product_name', 'our product')} could help
+3. Sound human and conversational
+
+**Tone:** {org.get('messaging_tone', 'professional')}
+
+Return your response in JSON format:
+{{"icebreaker": "your message"}}"""
+                            
+        except Exception as e:
+            logging.warning(f"Could not fetch organization prompt: {e}")
+    
+    # Fall back to default prompt from UI config
+    return get_prompt('icebreaker', """We just scraped a series of web pages for a business called . Your task is to take their summaries and turn them into catchy, personalized openers for a cold email campaign to imply that the rest of the campaign is personalized.
 
 You'll return your icebreakers in the following JSON format:
 
@@ -102,6 +183,9 @@ Rules:
 - Shorten the company name wherever possible (say, "XYZ" instead of "XYZ Agency"). More examples: "Love AMS" instead of "Love AMS Professional Services", "Love Mayo" instead of "Love Mayo Inc.", etc.
 - Do the same with locations. "San Fran" instead of "San Francisco", "BC" instead of "British Columbia", etc.
 - For your variables, focus on small, non-obvious things to paraphrase. The idea is to make people think we *really* dove deep into their website, so don't use something obvious. Do not say cookie-cutter stuff like "Love your website!" or "Love your take on marketing!".""")
+
+# Use dynamic prompt based on organization
+ICEBREAKER_PROMPT = get_organization_prompt()
 
 def reload_config():
     """Reload configuration from UI state file"""
@@ -119,7 +203,8 @@ def reload_config():
     DELAY_BETWEEN_AI_CALLS = get_ai_setting('delay_between_ai_calls', 5)  # Use fast 5s default
     
     SUMMARY_PROMPT = get_prompt('summary', SUMMARY_PROMPT)
-    ICEBREAKER_PROMPT = get_prompt('icebreaker', ICEBREAKER_PROMPT)
+    # Get organization-specific or default icebreaker prompt
+    ICEBREAKER_PROMPT = get_organization_prompt()
     
     logging.info("🔄 Configuration reloaded from React UI")
 

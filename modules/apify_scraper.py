@@ -26,6 +26,11 @@ class ApifyScraper:
             if total_records is None:
                 total_records = int(os.getenv('RECORD_COUNT', '500'))
             
+            # Enforce minimum of 500 records for Apollo scraper
+            if total_records < 500:
+                logging.warning(f"⚠️ Apollo scraper requires minimum 500 records. Adjusting from {total_records} to 500.")
+                total_records = 500
+            
             # Apify actor endpoint - using async approach for large Apollo scrapes
             actor_id = "jljBwyyQakqrL1wae"
             # Use regular run endpoint and poll for results
