@@ -15,6 +15,7 @@ import os
 import logging
 import time
 from typing import List, Dict, Any
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Add modules directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__), 'modules'))
@@ -125,8 +126,14 @@ class LeadGenerationOrchestrator:
                     logging.info(f"📋 Campaign: {campaign_info.get('name', 'Unknown')} - {len(search_urls)} URLs to process")
                     logging.info(f"🚀 STAGE 1: Starting Apollo scraping for campaign")
                 else:
-                    logging.error(f"❌ CRITICAL: No pending URLs found in campaign {campaign_id}")
-                    logging.error(f"Organization ID was: {self.organization_id}")
+                    logging.warning(f"⚠️ No pending URLs found in campaign {campaign_id}")
+                    logging.warning(f"Organization ID was: {self.organization_id}")
+                    # Mark campaign as completed since there's nothing to process
+                    try:
+                        self.supabase_manager.update_campaign_status(campaign_id, "completed")
+                        logging.info(f"✅ Campaign {campaign_id} marked as completed (no pending URLs)")
+                    except Exception as e:
+                        logging.error(f"Failed to update campaign status: {e}")
                     return False
             else:
                 # Get all pending search URLs (legacy behavior)
@@ -160,6 +167,10 @@ class LeadGenerationOrchestrator:
                     # Step 1: Scrape ALL contacts and store raw data immediately
                     # Get record count from environment (set by server)
                     record_count = int(os.getenv('RECORD_COUNT', '500'))
+                    # Enforce minimum for Apollo scraper
+                    if record_count < 500:
+                        logging.info(f"⚠️ Adjusting record count from {record_count} to minimum 500 for Apollo scraper")
+                        record_count = 500
                     logging.info(f"🔄 STAGE 1: Apollo Scraping - Starting scrape")
                     logging.info(f"🔍 DEBUG: Starting Apollo scrape for search_url_id={search_url_id}")
                     logging.info(f"📊 Requesting {record_count} records from Apollo")
@@ -222,19 +233,109 @@ class LeadGenerationOrchestrator:
             logging.info(f"📊 Raw contacts stored: {total_raw_contacts}")
             logging.info(f"🎯 Leads generated: {total_processed_leads}")
             
+            # Mark campaign as completed if this was a campaign run
+            if campaign_id:
+                try:
+                    self.supabase_manager.update_campaign_status(campaign_id, "completed")
+                    logging.info(f"✅ Campaign {campaign_id} marked as completed")
+                except Exception as e:
+                    logging.error(f"Failed to update campaign status to completed: {e}")
+            
             return total_processed_leads > 0
                 
         except Exception as e:
             logging.error(f"❌ Workflow failed: {e}")
+            # Mark campaign as failed if this was a campaign run
+            if campaign_id:
+                try:
+                    self.supabase_manager.update_campaign_status(campaign_id, "failed")
+                    logging.error(f"❌ Campaign {campaign_id} marked as failed due to error")
+                except Exception as status_error:
+                    logging.error(f"Failed to update campaign status to failed: {status_error}")
             return False
     
     def _process_raw_contacts_to_leads(self) -> int:
         """
         Stage 2: Process raw contacts from database into leads with AI icebreakers
-        Processes ALL unprocessed contacts in batches for better control
+        Now with PARALLEL PROCESSING for massive speed improvements
         
         Returns:
             int: Number of leads successfully generated
+        """
+        # Check if parallel processing is enabled
+        if config.ENABLE_PARALLEL_PROCESSING:
+            return self._process_raw_contacts_parallel()
+        else:
+            return self._process_raw_contacts_sequential()
+    
+    def _process_raw_contacts_parallel(self) -> int:
+        """
+        Process contacts in parallel using ThreadPoolExecutor
+        """
+        total_leads_created = 0
+        batch_number = 1
+        
+        try:
+            while True:
+                # Get next batch of unprocessed contacts
+                logging.info(f"📋 Batch {batch_number}: Fetching {config.BATCH_SIZE} unprocessed contacts...")
+                unprocessed_contacts = self.supabase_manager.get_unprocessed_contacts(
+                    limit=config.BATCH_SIZE,
+                    min_confidence=0.7
+                )
+                
+                if not unprocessed_contacts:
+                    logging.info(f"✅ No more unprocessed contacts found. Completed all batches!")
+                    break
+                
+                logging.info(f"📊 Batch {batch_number}: Processing {len(unprocessed_contacts)} contacts in PARALLEL")
+                logging.info(f"⚡ Using {config.MAX_CONTACTS_PARALLEL} parallel workers")
+                
+                batch_leads_created = 0
+                
+                # Process contacts in parallel
+                with ThreadPoolExecutor(max_workers=config.MAX_CONTACTS_PARALLEL) as executor:
+                    # Submit all contact processing tasks
+                    future_to_contact = {}
+                    for i, contact in enumerate(unprocessed_contacts, 1):
+                        if not isinstance(contact, dict):
+                            logging.error(f"Invalid contact type: {type(contact)}")
+                            continue
+                        
+                        future = executor.submit(
+                            self._process_single_contact,
+                            contact, batch_number, i, len(unprocessed_contacts)
+                        )
+                        future_to_contact[future] = contact
+                    
+                    # Collect results as they complete
+                    for future in as_completed(future_to_contact):
+                        contact = future_to_contact[future]
+                        try:
+                            lead_created = future.result()
+                            if lead_created:
+                                batch_leads_created += 1
+                        except Exception as e:
+                            logging.error(f"Error processing contact {contact.get('name', 'Unknown')}: {e}")
+                
+                total_leads_created += batch_leads_created
+                logging.info(f"✅ Batch {batch_number} completed: {batch_leads_created} leads created")
+                
+                batch_number += 1
+                
+                # Optional: Add a small delay between batches to prevent overwhelming the system
+                if batch_number > 1:
+                    time.sleep(2)
+            
+            return total_leads_created
+            
+        except Exception as e:
+            logging.error(f"❌ Error in parallel contact processing: {e}")
+            return total_leads_created
+    
+    def _process_raw_contacts_sequential(self) -> int:
+        """
+        Original sequential processing method (fallback)
         """
         total_leads_created = 0
         batch_number = 1
@@ -258,193 +359,145 @@ class LeadGenerationOrchestrator:
                 
                 # Process each contact in this batch
                 for i, contact in enumerate(unprocessed_contacts, 1):
-                    try:
-                        # Debug contact data structure
-                        if not isinstance(contact, dict):
-                            logging.error(f"❌ CRITICAL: Contact is not a dictionary, it's {type(contact)}: {contact}")
-                            continue
-                            
-                        logging.info(f"🤖 [{batch_number}.{i}/10] Processing: {contact.get('name', 'Unknown')} ({contact.get('email', 'No email')})")
-                        logging.info(f"📍 Progress: Batch {batch_number}, Contact {i} of {len(unprocessed_contacts)}")
-                        logging.info(f"🔄 STAGE 2: Processing contact {i} of {len(unprocessed_contacts)} - Researching websites")
-                        
-                        # Extract website and research it
-                        website_url = contact.get('website_url', '')
-                        content_summaries = []
-                        website_failed = False
-                        
-                        # Step 1: Scrape and summarize website (OPTIONAL - proceed even if fails)
-                        if website_url:
-                            logging.info(f"🌐 [{batch_number}.{i}] Scraping website: {website_url}")
-                            try:
-                                website_data = self.web_scraper.scrape_website_content(website_url)
-                                page_summaries = website_data.get('summaries', [])
-                                
-                                if page_summaries:
-                                    # Step 2: Generate AI summaries of website content  
-                                    logging.info(f"🧠 [{batch_number}.{i}] Generating AI summaries for website content")
-                                    logging.info(f"🔍 DEBUG: page_summaries type: {type(page_summaries)}, length: {len(page_summaries) if hasattr(page_summaries, '__len__') else 'N/A'}")
-                                    content_summaries = self.ai_processor.summarize_website_pages(page_summaries)
-                                    logging.info(f"🔍 DEBUG: content_summaries type: {type(content_summaries)}, length: {len(content_summaries) if hasattr(content_summaries, '__len__') else 'N/A'}")
-                                else:
-                                    logging.warning(f"⚠️ Website scraping failed for {website_url} (blocked/inaccessible)")
-                                    website_failed = True
-                                    content_summaries = ["Website content not available - site may be protected or blocked"]
-                            except Exception as website_error:
-                                logging.warning(f"⚠️ Website scraping exception for {website_url}: {website_error}")
-                                website_failed = True
-                                content_summaries = ["Website content not available - scraping failed"]
-                        else:
-                            logging.warning(f"No website URL for contact {contact.get('name')}")
-                            website_failed = True
-                            content_summaries = ["No website URL available"]
-                        
-                        # Step 3: Prepare contact data for icebreaker generation (ALWAYS PROCEED)
-                        contact_info = {
-                            'first_name': contact.get('name', '').split(' ')[0] if contact.get('name') else '',
-                            'last_name': contact.get('last_name', ''),
-                            'headline': contact.get('title', '') or contact.get('headline', ''),
-                            'location': f"{contact.get('city', '')} {contact.get('country', '')}".strip(),
-                            'website_summaries': content_summaries
-                        }
-                        
-                        # Step 4: Generate icebreaker (ALWAYS ATTEMPT - even with limited data)
-                        logging.info(f"🔄 STAGE 3: Generating icebreaker {i} of {len(unprocessed_contacts)} - Creating AI-powered icebreaker")
-                        logging.info(f"💬 [{batch_number}.{i}] Generating AI icebreaker for {contact.get('name')} {'(limited data)' if website_failed else ''}")
-                        icebreaker_response = self.ai_processor.generate_icebreaker(contact_info, content_summaries)
-                        
-                        # ENHANCED: Never skip leads - always create a lead entry
-                        if not icebreaker_response or not icebreaker_response.get('icebreaker'):
-                            logging.warning(f"AI icebreaker failed for {contact.get('name')} - using fallback")
-                            # Create a fallback icebreaker based on available contact info
-                            fallback_icebreaker = self._create_fallback_icebreaker(contact_info)
-                            icebreaker_response = {"icebreaker": fallback_icebreaker}
-                        
-                        # Step 5: Prepare lead data
-                        lead_data = {
-                            'first_name': contact_info['first_name'],
-                            'last_name': contact_info['last_name'],
-                            'email': contact.get('email'),
-                            'linkedin_url': contact.get('linkedin_url'),
-                            'headline': contact_info['headline'],
-                            'website_url': website_url,  # Fixed: was 'company_website'
-                            'location': contact_info['location'],
-                            'icebreaker': icebreaker_response['icebreaker'],
-                            'website_summaries': content_summaries
-                        }
-                        
-                        # Step 6: Store processed lead in Supabase
-                        logging.info(f"💾 [{batch_number}.{i}] Storing lead in database for {contact.get('name')}")
-                        processing_settings = {
-                            'ai_model_summary': config.AI_MODEL_SUMMARY,
-                            'ai_model_icebreaker': config.AI_MODEL_ICEBREAKER,
-                            'ai_temperature': config.AI_TEMPERATURE,
-                            'delay_between_ai_calls': config.DELAY_BETWEEN_AI_CALLS,
-                            'min_confidence': 0.7
-                        }
-                        
-                        created_lead = self.supabase_manager.create_processed_lead(
-                            contact['id'],
-                            contact['search_url_id'],
-                            lead_data,
-                            processing_settings
-                        )
-                        
-                        if created_lead:
-                            # Mark raw contact as processed
-                            self.supabase_manager.mark_contact_processed(contact['id'])
-                            batch_leads_created += 1
-                            logging.info(f"✅ [{batch_number}.{i}] SUCCESS: Created lead for {lead_data['first_name']} {lead_data['last_name']}")
-                        else:
-                            logging.error(f"❌ [{batch_number}.{i}] FAILED: Could not create lead for {contact.get('name')}")
-                        
-                        # Rate limiting between AI calls
-                        logging.info(f"⏳ [{batch_number}.{i}] Waiting {config.DELAY_BETWEEN_AI_CALLS}s before next contact...")
-                        time.sleep(config.DELAY_BETWEEN_AI_CALLS)
-                        
-                    except Exception as e:
-                        error_msg = str(e).lower()
-                        if "cloudflare" in error_msg or "403" in error_msg or "blocked" in error_msg:
-                            logging.warning(f"⚠️ Website blocked/protected for {contact.get('name', 'Unknown')}: {e}")
-                        else:
-                            logging.error(f"❌ Processing error for {contact.get('name', 'Unknown')}: {e}")
-                            logging.error(f"🔍 DEBUG: Exception type: {type(e)}")
-                            logging.error(f"🔍 DEBUG: Contact data type: {type(contact)}")
-                            if hasattr(contact, 'keys'):
-                                logging.error(f"🔍 DEBUG: Contact keys: {list(contact.keys())}")
-                            else:
-                                logging.error(f"🔍 DEBUG: Contact content: {contact}")
-                            import traceback
-                            logging.error(f"🔍 DEBUG: Full traceback: {traceback.format_exc()}")
-                        
-                        logging.warning(f"⚠️ Exception during processing {contact.get('name') if isinstance(contact, dict) else 'Unknown'} - creating fallback lead")
-                        # ENHANCED: Create a fallback lead even when processing fails
-                        if isinstance(contact, dict) and 'id' in contact:
-                            try:
-                                fallback_contact_info = {
-                                    'first_name': contact.get('name', '').split(' ')[0] if contact.get('name') else 'Contact',
-                                    'last_name': contact.get('last_name', ''),
-                                    'headline': contact.get('title', '') or contact.get('headline', ''),
-                                    'location': f"{contact.get('city', '')} {contact.get('country', '')}".strip(),
-                                    'website_summaries': ["Processing failed - unable to analyze website"]
-                                }
-                                
-                                fallback_icebreaker = self._create_fallback_icebreaker(fallback_contact_info)
-                                
-                                fallback_lead_data = {
-                                    'first_name': fallback_contact_info['first_name'],
-                                    'last_name': fallback_contact_info['last_name'],
-                                    'email': contact.get('email', ''),
-                                    'linkedin_url': contact.get('linkedin_url', ''),
-                                    'headline': fallback_contact_info['headline'],
-                                    'website_url': contact.get('website_url', ''),
-                                    'location': fallback_contact_info['location'],
-                                    'icebreaker': fallback_icebreaker,
-                                    'website_summaries': ["Error during processing - fallback lead"]
-                                }
-                                
-                                processing_settings = {
-                                    'ai_model_summary': 'fallback',
-                                    'ai_model_icebreaker': 'fallback',
-                                    'ai_temperature': 0.5,
-                                    'delay_between_ai_calls': config.DELAY_BETWEEN_AI_CALLS,
-                                    'min_confidence': 0.0,
-                                    'processing_status': 'error_fallback'
-                                }
-                                
-                                fallback_lead = self.supabase_manager.create_processed_lead(
-                                    contact['id'],
-                                    contact['search_url_id'],
-                                    fallback_lead_data,
-                                    processing_settings
-                                )
-                                
-                                if fallback_lead:
-                                    batch_leads_created += 1
-                                    logging.info(f"✅ [{batch_number}.{i}] FALLBACK SUCCESS: Created fallback lead for {fallback_contact_info['first_name']}")
-                                
-                            except Exception as fallback_error:
-                                logging.error(f"❌ Even fallback lead creation failed: {fallback_error}")
-                                
-                            self.supabase_manager.mark_contact_processed(contact['id'])
-                        continue
-            
-                # Batch completion summary
+                    lead_created = self._process_single_contact(contact, batch_number, i, len(unprocessed_contacts))
+                    if lead_created:
+                        batch_leads_created += 1
+                
                 total_leads_created += batch_leads_created
-                success_rate = (batch_leads_created / len(unprocessed_contacts)) * 100
-                logging.info(f"🎯 BATCH {batch_number} COMPLETED: {batch_leads_created}/{len(unprocessed_contacts)} leads created ({success_rate:.1f}% success)")
-                logging.info(f"📈 RUNNING TOTAL: {total_leads_created} leads created so far")
+                logging.info(f"✅ Batch {batch_number}: {batch_leads_created}/{len(unprocessed_contacts)} leads created")
+                
                 batch_number += 1
                 
-            # Final summary after all batches
-            logging.info(f"🏁 ALL BATCHES COMPLETED!")
-            logging.info(f"🎯 FINAL RESULTS: {total_leads_created} total leads created")
-            logging.info(f"📊 Processed {batch_number - 1} batches successfully")
-            return total_leads_created
-            
+                # Rate limiting between batches
+                if batch_number > 1:
+                    time.sleep(2)
+                    
         except Exception as e:
-            logging.error(f"❌ Error in raw contacts processing: {e}")
-            return 0
+            logging.error(f"❌ Error processing batch: {e}")
+        
+        return total_leads_created
+    
+    def _process_single_contact(self, contact: dict, batch_number: int, contact_index: int, total_contacts: int) -> bool:
+        """
+        Process a single contact into a lead
+        Returns True if lead was successfully created
+        """
+        try:
+            # Debug contact data structure
+            if not isinstance(contact, dict):
+                logging.error(f"❌ CRITICAL: Contact is not a dictionary, it's {type(contact)}: {contact}")
+                return False
+                
+            logging.info(f"🤖 [{batch_number}.{contact_index}/{total_contacts}] Processing: {contact.get('name', 'Unknown')} ({contact.get('email', 'No email')})")
+            logging.info(f"📍 Progress: Batch {batch_number}, Contact {contact_index} of {total_contacts}")
+            logging.info(f"🔄 STAGE 2: Processing contact {contact_index} of {total_contacts} - Researching websites")
+            
+            # Extract website and research it
+            website_url = contact.get('website_url', '')
+            content_summaries = []
+            website_failed = False
+            
+            # Step 1: Scrape and summarize website (OPTIONAL - proceed even if fails)
+            if website_url:
+                logging.info(f"🌐 [{batch_number}.{contact_index}] Scraping website: {website_url}")
+                try:
+                    website_data = self.web_scraper.scrape_website_content(website_url)
+                    page_summaries = website_data.get('summaries', [])
+                    
+                    if page_summaries:
+                        # Step 2: Generate AI summaries of website content  
+                        logging.info(f"🧠 [{batch_number}.{contact_index}] Generating AI summaries for website content")
+                        logging.info(f"🔍 DEBUG: page_summaries type: {type(page_summaries)}, length: {len(page_summaries) if hasattr(page_summaries, '__len__') else 'N/A'}")
+                        content_summaries = self.ai_processor.summarize_website_pages(page_summaries)
+                        logging.info(f"🔍 DEBUG: content_summaries type: {type(content_summaries)}, length: {len(content_summaries) if hasattr(content_summaries, '__len__') else 'N/A'}")
+                    else:
+                        logging.warning(f"⚠️ Website scraping failed for {website_url} (blocked/inaccessible)")
+                        website_failed = True
+                        content_summaries = ["Website content not available - site may be protected or blocked"]
+                except Exception as website_error:
+                    logging.warning(f"⚠️ Website scraping exception for {website_url}: {website_error}")
+                    website_failed = True
+                    content_summaries = ["Website content not available - scraping failed"]
+            else:
+                logging.warning(f"No website URL for contact {contact.get('name')}")
+                website_failed = True
+                content_summaries = ["No website URL available"]
+            
+            # Step 3: Prepare contact data for icebreaker generation (ALWAYS PROCEED)
+            contact_info = {
+                'first_name': contact.get('name', '').split(' ')[0] if contact.get('name') else '',
+                'last_name': contact.get('last_name', ''),
+                'headline': contact.get('title', '') or contact.get('headline', ''),
+                'location': f"{contact.get('city', '')} {contact.get('country', '')}".strip(),
+                'website_summaries': content_summaries
+            }
+            
+            # Step 4: Generate icebreaker (ALWAYS ATTEMPT - even with limited data)
+            logging.info(f"🔄 STAGE 3: Generating icebreaker {contact_index} of {total_contacts} - Creating AI-powered icebreaker")
+            logging.info(f"💬 [{batch_number}.{contact_index}] Generating AI icebreaker for {contact.get('name')} {'(limited data)' if website_failed else ''}")
+            icebreaker_response = self.ai_processor.generate_icebreaker(contact_info, content_summaries)
+            
+            # ENHANCED: Never skip leads - always create a lead entry
+            if not icebreaker_response or not icebreaker_response.get('icebreaker'):
+                logging.warning(f"AI icebreaker failed for {contact.get('name')} - using fallback")
+                # Create a fallback icebreaker based on available contact info
+                fallback_icebreaker = self._create_fallback_icebreaker(contact_info)
+                icebreaker_response = {"icebreaker": fallback_icebreaker}
+            
+            # Step 5: Prepare lead data
+            lead_data = {
+                'first_name': contact_info['first_name'],
+                'last_name': contact_info['last_name'],
+                'email': contact.get('email'),
+                'linkedin_url': contact.get('linkedin_url'),
+                'headline': contact_info['headline'],
+                'website_url': website_url,  # Fixed: was 'company_website'
+                'location': contact_info['location'],
+                'icebreaker': icebreaker_response['icebreaker'],
+                'website_summaries': content_summaries
+            }
+            
+            # Step 6: Store processed lead in Supabase
+            logging.info(f"💾 [{batch_number}.{contact_index}] Storing lead in database for {contact.get('name')}")
+            processing_settings = {
+                'ai_model_summary': config.AI_MODEL_SUMMARY,
+                'ai_model_icebreaker': config.AI_MODEL_ICEBREAKER,
+                'ai_temperature': config.AI_TEMPERATURE,
+                'delay_between_ai_calls': config.DELAY_BETWEEN_AI_CALLS,
+                'min_confidence': 0.7
+            }
+            
+            created_lead = self.supabase_manager.create_processed_lead(
+                contact['id'],
+                contact['search_url_id'],
+                lead_data,
+                processing_settings
+            )
+            
+            if created_lead:
+                # Mark raw contact as processed
+                self.supabase_manager.mark_contact_processed(contact['id'])
+                logging.info(f"✅ [{batch_number}.{contact_index}] SUCCESS: Created lead for {lead_data['first_name']} {lead_data['last_name']}")
+                return True
+            else:
+                logging.error(f"❌ [{batch_number}.{contact_index}] FAILED: Could not create lead for {contact.get('name')}")
+                return False
+                
+        except Exception as e:
+            error_msg = str(e).lower()
+            if "cloudflare" in error_msg or "403" in error_msg or "blocked" in error_msg:
+                logging.warning(f"⚠️ Website blocked/protected for {contact.get('name', 'Unknown')}: {e}")
+            else:
+                logging.error(f"❌ Processing error for {contact.get('name', 'Unknown')}: {e}")
+                logging.error(f"🔍 DEBUG: Exception type: {type(e)}")
+                logging.error(f"🔍 DEBUG: Contact data type: {type(contact)}")
+                if hasattr(contact, 'keys'):
+                    logging.error(f"🔍 DEBUG: Contact keys: {list(contact.keys())}")
+                else:
+                    logging.error(f"🔍 DEBUG: Contact content: {contact}")
+                import traceback
+                logging.error(f"🔍 DEBUG: Full traceback: {traceback.format_exc()}")
+            return False
     
     def _create_fallback_icebreaker(self, contact_info: Dict[str, Any]) -> str:
         """
@@ -587,6 +640,10 @@ class LeadGenerationOrchestrator:
             
             # Get contacts using the record count from environment (set by server)
             record_count = int(os.getenv('RECORD_COUNT', '500'))
+            # Enforce minimum for Apollo scraper
+            if record_count < 500:
+                logging.info(f"⚠️ Test mode: Adjusting record count from {record_count} to minimum 500 for Apollo scraper")
+                record_count = 500
             logging.info(f"📊 Test mode requesting {record_count} records from Apollo")
             
             # *** FIX: Use the same two-stage Supabase pipeline as production ***
