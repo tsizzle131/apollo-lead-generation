@@ -26,6 +26,7 @@ except ImportError:
     GoogleSheetsManager = None
 from supabase_manager import SupabaseManager
 from apify_scraper import ApifyScraper
+from local_business_scraper import LocalBusinessScraper
 from web_scraper import WebScraper
 from ai_processor import AIProcessor
 import config
@@ -85,6 +86,7 @@ class LeadGenerationOrchestrator:
             
         # Core processing components
         self.apify_scraper = ApifyScraper()
+        self.local_scraper = LocalBusinessScraper()
         self.web_scraper = WebScraper()
         self.ai_processor = AIProcessor()  # Will automatically load latest API key
         
@@ -167,16 +169,48 @@ class LeadGenerationOrchestrator:
                     # Step 1: Scrape ALL contacts and store raw data immediately
                     # Get record count from environment (set by server)
                     record_count = int(os.getenv('RECORD_COUNT', '500'))
-                    # Enforce minimum for Apollo scraper
-                    if record_count < 500:
-                        logging.info(f"⚠️ Adjusting record count from {record_count} to minimum 500 for Apollo scraper")
-                        record_count = 500
-                    logging.info(f"🔄 STAGE 1: Apollo Scraping - Starting scrape")
-                    logging.info(f"🔍 DEBUG: Starting Apollo scrape for search_url_id={search_url_id}")
-                    logging.info(f"📊 Requesting {record_count} records from Apollo")
-                    logging.info(f"🌐 Apollo URL: {search_url}")
                     
-                    raw_contacts = self.apify_scraper.scrape_contacts(search_url, total_records=record_count)
+                    # Check scraper type from environment or URL pattern
+                    scraper_type = os.getenv('SCRAPER_TYPE', 'apollo').lower()
+                    
+                    # Detect scraper type from URL if not specified
+                    if 'apollo.io' in search_url:
+                        scraper_type = 'apollo'
+                    elif 'local:' in search_url:  # Format: "local:query|location"
+                        scraper_type = 'local'
+                    
+                    if scraper_type == 'local':
+                        # Parse local business search parameters
+                        # Expected format: "local:hair salons|Austin, TX"
+                        if search_url.startswith('local:'):
+                            parts = search_url[6:].split('|')
+                            query = parts[0] if len(parts) > 0 else 'businesses'
+                            location = parts[1] if len(parts) > 1 else 'United States'
+                            
+                            logging.info(f"🗺️ STAGE 1: Local Business Scraping - Starting scrape")
+                            logging.info(f"🔍 Query: {query} in {location}")
+                            logging.info(f"📊 Requesting up to {record_count} businesses")
+                            
+                            raw_contacts = self.local_scraper.scrape_local_businesses(
+                                search_query=query,
+                                location=location,
+                                max_results=record_count
+                            )
+                        else:
+                            logging.error(f"❌ Invalid local search URL format: {search_url}")
+                            raw_contacts = []
+                    else:
+                        # Default to Apollo scraper
+                        # Enforce minimum for Apollo scraper
+                        if record_count < 500:
+                            logging.info(f"⚠️ Adjusting record count from {record_count} to minimum 500 for Apollo scraper")
+                            record_count = 500
+                        logging.info(f"🔄 STAGE 1: Apollo Scraping - Starting scrape")
+                        logging.info(f"🔍 DEBUG: Starting Apollo scrape for search_url_id={search_url_id}")
+                        logging.info(f"📊 Requesting {record_count} records from Apollo")
+                        logging.info(f"🌐 Apollo URL: {search_url}")
+                        
+                        raw_contacts = self.apify_scraper.scrape_contacts(search_url, total_records=record_count)
                     
                     logging.info(f"🔍 DEBUG: Apollo scrape returned {len(raw_contacts) if raw_contacts else 0} contacts")
                     if raw_contacts:
@@ -605,7 +639,8 @@ class LeadGenerationOrchestrator:
         logging.info("🧪 Testing API connections...")
         
         tests = [
-            ("Apify API", self.apify_scraper.test_connection),
+            ("Apify API (Apollo)", self.apify_scraper.test_connection),
+            ("Local Business Scraper", self.local_scraper.test_connection),
             ("OpenAI API", self.ai_processor.test_connection),
         ]
         
