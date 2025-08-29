@@ -155,6 +155,20 @@ class AIProcessor:
             reload_config()
             from config import ICEBREAKER_PROMPT, AI_MODEL_ICEBREAKER, AI_TEMPERATURE
             
+            # Check if this is a business contact (from local business scraper)
+            is_business_contact = contact_info.get('is_business_contact', False)
+            email = contact_info.get('email', '')
+            email_status = contact_info.get('email_status', '')
+            
+            # Detect generic business emails
+            generic_prefixes = ['info@', 'contact@', 'hello@', 'sales@', 'support@', 'admin@', 'office@']
+            is_generic_email = any(email.lower().startswith(prefix) for prefix in generic_prefixes)
+            
+            # If it's a business contact or generic email, use B2B approach
+            if is_business_contact or is_generic_email or email_status == 'business_email':
+                return self._generate_b2b_icebreaker(contact_info, website_summaries)
+            
+            # Otherwise use normal personalized approach
             # Prepare contact profile
             first_name = contact_info.get('first_name', '')
             last_name = contact_info.get('last_name', '')
@@ -325,6 +339,105 @@ Return your response in this EXACT JSON format:
             return f"Hi {first_name},\n\nNoticed your work as {headline}. Working on something that might be relevant to your expertise.\n\nWould love to connect and share what we're building."
         else:
             return f"Hi {first_name},\n\nCame across your profile and thought there might be some interesting synergy with what we're working on.\n\nWould you be open to a brief conversation?"
+    
+    def _generate_b2b_icebreaker(self, contact_info: Dict[str, Any], website_summaries: List[str]) -> Dict[str, str]:
+        """
+        Generate a B2B icebreaker for business contacts (not individual decision makers)
+        This is used when we have generic business emails like info@, contact@, etc.
+        """
+        try:
+            # Reload config
+            reload_config()
+            from config import AI_MODEL_ICEBREAKER, AI_TEMPERATURE
+            
+            # Get business information
+            business_name = contact_info.get('name') or contact_info.get('organization', {}).get('name', '')
+            category = contact_info.get('organization', {}).get('category', '')
+            website = contact_info.get('website_url', '')
+            location = contact_info.get('organization', {}).get('city', '')
+            
+            website_content = "\n".join(website_summaries) if website_summaries else "No website content available"
+            
+            # B2B specific prompt
+            b2b_prompt = f"""
+You are writing to a BUSINESS EMAIL (info@, contact@, etc.), not a specific person.
+The email should be appropriate for whoever handles business inquiries at this company.
+
+Business: {business_name}
+Type: {category}
+Location: {location}
+Website: {website}
+
+Website Content Summary:
+{website_content}
+
+Create a professional B2B outreach email that:
+1. Addresses the business/team (not a specific person)
+2. Clearly states who we are and why we're reaching out
+3. Mentions something specific about THEIR business (from website/category)
+4. Asks to be directed to the right person (owner/manager/decision maker)
+5. Is concise and professional
+
+The email should feel like a legitimate business inquiry, not cold sales.
+
+Good opening examples:
+- "Hi {business_name} team,"
+- "Hello,"
+- "Good morning,"
+
+Include a line like:
+- "Could you direct me to the person who handles [relevant area]?"
+- "I'd love to speak with whoever manages [relevant department]"
+- "Could you connect me with the owner or decision maker regarding [topic]?"
+
+Subject line should be:
+- Professional and clear
+- Reference the business name or type
+- 30-50 characters
+
+Return JSON format:
+{{
+  "icebreaker": "your B2B outreach message",
+  "subject_line": "professional subject line"
+}}
+"""
+            
+            messages = [
+                {
+                    "role": "system",
+                    "content": "You're a professional B2B outreach specialist. Generate business-appropriate emails for generic business email addresses."
+                },
+                {
+                    "role": "user",
+                    "content": b2b_prompt
+                }
+            ]
+            
+            response = self.client.chat.completions.create(
+                model=AI_MODEL_ICEBREAKER,
+                messages=messages,
+                temperature=AI_TEMPERATURE,
+                response_format={"type": "json_object"}
+            )
+            
+            result = response.choices[0].message.content
+            
+            # Parse JSON response
+            import json
+            parsed = json.loads(result)
+            
+            # Wait for rate limit
+            rate_limiter.wait_for_openai(AI_MODEL_ICEBREAKER)
+            
+            return parsed
+            
+        except Exception as e:
+            logging.error(f"Error generating B2B icebreaker: {e}")
+            # Fallback B2B message
+            return {
+                "icebreaker": f"Hello {business_name} team,\n\nI came across your business and was impressed by what you're doing in {category or 'your industry'}.\n\nWe help businesses like yours [relevant value prop]. Could you direct me to the person who handles business development or partnerships?\n\nThank you for your time.",
+                "subject_line": f"Partnership opportunity for {business_name[:20]}"
+            }
     
     def _retry_icebreaker_generation(self, contact_info: dict, website_summaries: list, attempt: int) -> dict:
         """Retry icebreaker generation with the same parameters"""

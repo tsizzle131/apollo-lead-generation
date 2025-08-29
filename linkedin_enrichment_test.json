@@ -1,0 +1,135 @@
+[
+  {
+    "url": "https://linkedin.com/in/sarah-el-sharkawy-23bb39281",
+    "firstName": "Sarah",
+    "lastName": "El Sharkawy",
+    "headline": "Junior Web Dev | Traduttrice",
+    "EXPERIENCE": [
+      {
+        "subtitle": "alpenite \u00b7 Full-time",
+        "title": "Web developer",
+        "meta": "Venezia \u00b7 Hybrid",
+        "caption": "Jul 2024 - Present \u00b7 1 yr 2 mos",
+        "level": 7,
+        "child": []
+      },
+      {
+        "subtitle": "Self-employed",
+        "title": "Sviluppatore web junior",
+        "meta": "Remote",
+        "caption": "Sep 2023 - Present \u00b7 2 yrs",
+        "level": 7,
+        "child": [
+          {
+            "text": "studio autonomo",
+            "level": 16,
+            "child": []
+          }
+        ]
+      },
+      {
+        "subtitle": "Self-employed",
+        "title": "Traduttore freelance",
+        "meta": "Remote",
+        "caption": "Mar 2019 - Present \u00b7 6 yrs 6 mos",
+        "level": 7,
+        "child": []
+      },
+      {
+        "subtitle": "Generali \u00b7 Contract",
+        "title": "Data entry",
+        "meta": "Mogliano Veneto, Veneto, Italia \u00b7 On-site",
+        "caption": "Jun 2024 - Jun 2024 \u00b7 1 mo",
+        "level": 7,
+        "child": [
+          {
+            "text": "Gestione del flusso dei dati Previdenziali dai contribuenti verso l'azienda e viceversa, area Amministrativa",
+            "level": 16,
+            "child": []
+          }
+        ]
+      },
+      {
+        "subtitle": "STARCHING \u00b7 Self-employed",
+        "title": "Traduttore freelance",
+        "meta": "Milano \u00b7 Remote",
+        "caption": "Jul 2019 - Apr 2024 \u00b7 4 yrs 10 mos",
+        "level": 7,
+        "child": [
+          {
+            "text": "Traduzione di diversi progetti in lingua inglese, recente collaborazione con l'area marketing nella traduzione dello yearbook aziendale e del nuovo sito (online @ www.starching.it)",
+            "level": 16,
+            "child": []
+          }
+        ]
+      }
+    ],
+    "ABOUT": [
+      {
+        "text": "Motivated and versatile professional with a diverse background in languages, cultural studies, and increasing passion in the web development field (mostly frontend, I really enjoy learning new languages\ud83e\udd13).\n  Experienced in balancing work and study commitments, with a proactive approach to learning and personal development. \n Currently expanding skill set in web development, especially in HTML & CSS, JavaScript & Vue.js, PHP & Laravel, SQL and initial exposure to digital transformation concepts. \n\nSeeking opportunities to leverage linguistic expertise and technical skills in a dynamic and stimulating environment\u2764\ufe0f.\n\nMore info available in my personal cv, DM me if interested.\n\nCat.Protette L.68/99",
+        "level": 3,
+        "child": []
+      }
+    ],
+    "LANGUAGES": [
+      {
+        "title": "Cinese",
+        "caption": "Elementary proficiency",
+        "level": 7,
+        "child": []
+      },
+      {
+        "title": "Francese",
+        "caption": "Professional working proficiency",
+        "level": 7,
+        "child": []
+      }
+    ],
+    "LICENSES_AND_CERTIFICATIONS": [
+      {
+        "subtitle": "Boolean",
+        "title": "[IT] Full-Stack Web Development Part-Time",
+        "meta": "Credential ID 87501acd-00c8-47a0-983c-fdbe4868acb9",
+        "caption": "Issued Aug 2024",
+        "level": 7,
+        "child": []
+      },
+      {
+        "subtitle": "Universit\u00e0 Ca'\u200b Foscari Venezia",
+        "title": "Laurea in Lingue, culture e societ\u00e0 dell'Asia e dell'Africa Mediterranea",
+        "meta": "Credential ID iE9hDyLFRF2mclhPRhvpnw",
+        "caption": "Issued Mar 2024",
+        "level": 7,
+        "child": []
+      }
+    ],
+    "EDUCATION": [
+      {
+        "subtitle": "Laurea triennale, Lingue,Culture e Societ\u00e0 dell'Asia e dell'Africa Mediterranea",
+        "title": "Universit\u00e0 Ca'\u200b Foscari Venezia",
+        "caption": "Sep 2019 - Mar 2024",
+        "level": 7,
+        "child": [
+          {
+            "text": "I embarked on a transformative journey during my undergraduate studies at Ca' Foscari, renowned for its distinguished academic environment. \nBalancing my academic pursuits alongside professional commitments, I mastered the art of time management and multitasking.\nOver three enriching years, I not only expanded my cultural horizons but also cultivated a diverse set of skills, both professionally and personally. \n Beyond my academic curriculum, I explored diverse domains offered by the university,  including economics, communications, strategic studies, and information technology. \nThis immersive experience broadened my perspectives, fostering growth and adaptability in a rapidly evolving landscape.",
+            "level": 16,
+            "child": []
+          }
+        ]
+      },
+      {
+        "subtitle": "Liceo Linguistico, Lingue e letterature straniere, generale",
+        "title": "Liceo Linguistico \"Salvatore Quasimodo\" di Magenta",
+        "caption": "Sep 2014 - Jul 2019",
+        "level": 7,
+        "child": [
+          {
+            "text": "Cinese, Inglese, Francese",
+            "level": 16,
+            "child": []
+          }
+        ]
+      }
+    ]
+  }
+]
