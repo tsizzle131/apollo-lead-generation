@@ -494,7 +494,8 @@ class LeadGenerationOrchestrator:
                 logging.warning(f"AI icebreaker failed for {contact.get('name')} - using fallback")
                 # Create a fallback icebreaker based on available contact info
                 fallback_icebreaker = self._create_fallback_icebreaker(contact_info)
-                icebreaker_response = {"icebreaker": fallback_icebreaker, "subject_line": f"Quick question, {contact_info['first_name']}"}
+                fallback_subject = self._create_fallback_subject(contact_info)
+                icebreaker_response = {"icebreaker": fallback_icebreaker, "subject_line": fallback_subject}
             
             # Step 5: Prepare lead data
             lead_data = {
@@ -575,6 +576,36 @@ class LeadGenerationOrchestrator:
             return f"Hi {first_name},\n\nConnecting with professionals in {location}. Working on something that might interest your network.\n\nOpen to a brief conversation?"
         else:
             return f"Hi {first_name},\n\nCame across your profile and thought there might be some interesting overlap with what we're working on.\n\nWould you be open to a brief conversation?"
+    
+    def _create_fallback_subject(self, contact_info: Dict[str, Any]) -> str:
+        """
+        Create a fallback subject line with variety
+        
+        Args:
+            contact_info: Basic contact information
+            
+        Returns:
+            str: Short, engaging subject line
+        """
+        import random
+        first_name = contact_info.get('first_name', 'there')
+        company = contact_info.get('company_name', contact_info.get('company', ''))
+        
+        if company and len(company) > 3:
+            short_company = company[:20] if len(company) > 20 else company
+            return random.choice([
+                f"Quick question about {short_company}",
+                f"{first_name}, about {short_company[:15]}",
+                f"Idea for {short_company}",
+                f"{short_company} opportunity",
+            ])
+        else:
+            return random.choice([
+                f"Quick question, {first_name}",
+                f"{first_name}, 30 seconds?",
+                f"Idea for you, {first_name}",
+                f"Relevant for you, {first_name}",
+            ])
     
     def _run_legacy_workflow(self) -> bool:
         """Legacy workflow for Google Sheets compatibility"""

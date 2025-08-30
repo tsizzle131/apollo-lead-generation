@@ -151,9 +151,10 @@ class AIProcessor:
             Dictionary with 'icebreaker' and 'subject_line' keys
         """
         try:
+            import random
             # Reload config to get latest prompts and settings from UI
             reload_config()
-            from config import ICEBREAKER_PROMPT, AI_MODEL_ICEBREAKER, AI_TEMPERATURE
+            from config import ICEBREAKER_PROMPT, AI_MODEL_ICEBREAKER, AI_TEMPERATURE, ORGANIZATION_CONFIG
             
             # Check if this is a business contact (from local business scraper)
             is_business_contact = contact_info.get('is_business_contact', False)
@@ -192,8 +193,25 @@ class AIProcessor:
 - DO NOT mention that their website is blocked, protected, or unavailable
 - Focus on industry-specific pain points or opportunities"""
             
+            # Add variation instructions to reduce repetitive patterns
+            variation_instructions = random.choice([
+                "\n\nSTYLE: Start with a question about their business.",
+                "\n\nSTYLE: Lead with an observation about their industry.",
+                "\n\nSTYLE: Open with their name and a direct statement.",
+                "\n\nSTYLE: Begin with an insight about their market.",
+                "\n\nSTYLE: Start with what caught your attention.",
+            ])
+            
+            connection_style = random.choice([
+                "Make the connection to our solution subtle and natural.",
+                "Be direct about how we can help.",
+                "Focus on their pain point first, then our solution.",
+                "Highlight a specific opportunity we can address.",
+                "Connect through a shared challenge in their industry.",
+            ])
+            
             # Enhanced prompt that requests both icebreaker and subject line
-            enhanced_prompt = ICEBREAKER_PROMPT + """
+            enhanced_prompt = ICEBREAKER_PROMPT + variation_instructions + "\n" + connection_style + """
 
 ADDITIONALLY, create a compelling email subject line that:
 1. Is 30-50 characters MAX (mobile-optimized)
@@ -282,7 +300,9 @@ Return your response in this EXACT JSON format:
             if not icebreaker or len(icebreaker) < 20:
                 logging.warning(f"AI returned empty/short icebreaker for {first_name} - creating fallback")
                 fallback = self._create_basic_fallback(first_name, headline)
-                return {"icebreaker": fallback, "subject_line": subject_line or f"Quick question, {first_name}"}
+                if not subject_line:
+                    subject_line = self._create_fallback_subject(first_name, company_name)
+                return {"icebreaker": fallback, "subject_line": subject_line}
             
             logging.info(f"Generated icebreaker and subject for {first_name} {last_name}")
             logging.debug(f"Subject line ({len(subject_line)} chars): {subject_line}")
@@ -349,6 +369,28 @@ Return your response in this EXACT JSON format:
             return f"Hi {first_name},\n\nNoticed your work as {headline}. Working on something that might be relevant to your expertise.\n\nWould love to connect and share what we're building."
         else:
             return f"Hi {first_name},\n\nCame across your profile and thought there might be some interesting synergy with what we're working on.\n\nWould you be open to a brief conversation?"
+    
+    def _create_fallback_subject(self, first_name: str, company_name: str = None) -> str:
+        """Create a fallback subject line with variety"""
+        import random
+        if company_name and len(company_name) > 3:
+            # Truncate company name if needed
+            short_company = company_name[:20] if len(company_name) > 20 else company_name
+            return random.choice([
+                f"Quick question about {short_company}",
+                f"{first_name}, about {short_company[:15]}",
+                f"{short_company} + automation?",
+                f"Idea for {short_company}",
+                f"{short_company} growth opportunity",
+            ])
+        else:
+            return random.choice([
+                f"Quick question, {first_name}",
+                f"{first_name}, 30 seconds?",
+                f"Idea for you, {first_name}",
+                f"{first_name} - quick thought",
+                f"Relevant for you, {first_name}",
+            ])
     
     def _generate_b2b_icebreaker(self, contact_info: Dict[str, Any], website_summaries: List[str]) -> Dict[str, str]:
         """

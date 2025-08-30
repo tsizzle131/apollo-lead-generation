@@ -28,6 +28,7 @@ _ui_config = load_ui_config()
 
 # Organization context
 CURRENT_ORGANIZATION_ID = os.getenv('CURRENT_ORGANIZATION_ID')
+ORGANIZATION_CONFIG = {}  # Will be populated when prompt is loaded
 
 # API Keys - Read from UI first, then .env, then defaults
 def get_api_key(key_name, env_name, default=None):
@@ -139,33 +140,59 @@ def get_organization_prompt():
                         # If organization has product config, build dynamic prompt
                         if org.get('product_name'):
                             logging.info(f"🎯 Building dynamic prompt for {org.get('product_name')}")
-                            return f"""You're writing the opening lines of a cold email for {org.get('product_name', 'our product')}.
+                            # Store org config globally for AI processor to use
+                            global ORGANIZATION_CONFIG
+                            ORGANIZATION_CONFIG = org
+                            
+                            return f"""You're a sales expert writing personalized cold email openers for {org.get('product_name', 'our product')}.
 
-**The Person:**
+**The Prospect:**
 Name: {{first_name}} {{last_name}}
 Role: {{headline}}
 Company: {{company_name}}
 Location: {{location}}
 
-**What you learned about their company:**
+**Their Business Context:**
 {{website_summaries}}
 
-**Your Product/Service:**
-- Name: {org.get('product_name', 'Our Product')}
-- Description: {org.get('product_description', 'Product/service')}
-- Value: {org.get('value_proposition', 'Helps businesses grow')}
-- Target: {org.get('target_audience', 'Businesses')}
+**Your Product - {org.get('product_name', 'Our Product')}:**
+{org.get('product_description', 'Product/service')}
 
-**Your Job:**
-Write 2-3 sentences that:
-1. Reference ONE specific thing about their business
-2. Connect it to how {org.get('product_name', 'our product')} could help
-3. Sound human and conversational
+**Value Proposition:**
+{org.get('value_proposition', 'Helps businesses grow')}
 
-**Tone:** {org.get('messaging_tone', 'professional')}
+**Target Audience:**
+{org.get('target_audience', 'Businesses')}
 
-Return your response in JSON format:
-{{"icebreaker": "your message"}}"""
+**Your Task:**
+Write a 2-3 sentence icebreaker that:
+1. References ONE specific, non-obvious detail from their business (avoid generic compliments)
+2. Creates a natural bridge to how {org.get('product_name')} addresses a specific pain point or opportunity
+3. Uses varied language patterns - avoid overusing: "noticed your", "curious about", "might align", "let's chat"
+
+**Language Variety Guidelines:**
+- Opening variations: Start with their name sometimes, a question other times, or an observation
+- Connection phrases: Use "addresses", "solves", "helps with", "tackles", "streamlines" instead of always "aligns with"
+- Closing variations: Mix between questions, statements, and soft CTAs
+- Avoid these overused patterns: "noticed your knack for", "impressed by", "caught my eye"
+
+**Tone:** {org.get('messaging_tone', 'professional')} but always conversational and genuine
+
+**Subject Line Requirements:**
+Create a subject line that:
+- Is 30-50 characters max
+- Creates genuine curiosity without clickbait
+- Uses one of these patterns (vary them):
+  • Question: "Quick question about [specific thing]"
+  • Observation: "[Company] + [specific observation]"
+  • Direct: "[Name], about [specific area]"
+  • Connection: "[Their thing] → [benefit]"
+
+Return EXACTLY this JSON format:
+{{
+  "icebreaker": "your personalized message here",
+  "subject_line": "your subject line here"
+}}"""
                             
         except Exception as e:
             logging.warning(f"Could not fetch organization prompt: {e}")
