@@ -375,16 +375,21 @@ class LeadGenerationOrchestrator:
         batch_number = 1
         
         try:
+            logging.info(f"🚀 Starting batch processing loop...")
             while True:
                 # Get next batch of unprocessed contacts that meet quality criteria
                 logging.info(f"📋 Processing Batch {batch_number}: Fetching {config.BATCH_SIZE} unprocessed contacts...")
+                logging.info(f"🔍 Calling get_unprocessed_contacts with limit={config.BATCH_SIZE}, organization_id={self.supabase_manager.organization_id}")
                 unprocessed_contacts = self.supabase_manager.get_unprocessed_contacts(
                     limit=config.BATCH_SIZE,  # Process in manageable batches
                     min_confidence=0.7  # Only high-confidence emails
                 )
                 
+                logging.info(f"🔍 get_unprocessed_contacts returned: {len(unprocessed_contacts) if unprocessed_contacts else 0} contacts")
+                
                 if not unprocessed_contacts:
                     logging.info(f"✅ No more unprocessed contacts found. Completed all batches!")
+                    logging.info(f"📊 Final stats: {total_leads_created} total leads created from {batch_number - 1} batches")
                     break
                 
                 logging.info(f"📊 Batch {batch_number}: Found {len(unprocessed_contacts)} qualified contacts to process")
@@ -399,15 +404,25 @@ class LeadGenerationOrchestrator:
                 
                 total_leads_created += batch_leads_created
                 logging.info(f"✅ Batch {batch_number}: {batch_leads_created}/{len(unprocessed_contacts)} leads created")
+                logging.info(f"📈 Total progress: {total_leads_created} leads created so far")
                 
                 batch_number += 1
+                logging.info(f"🔄 Moving to batch {batch_number}...")
                 
                 # Rate limiting between batches
                 if batch_number > 1:
+                    logging.info(f"⏱️ Rate limiting: Waiting 2 seconds before next batch...")
                     time.sleep(2)
+                    logging.info(f"▶️ Continuing with batch {batch_number}")
                     
         except Exception as e:
-            logging.error(f"❌ Error processing batch: {e}")
+            import traceback
+            logging.error(f"❌ Error processing batch {batch_number}: {e}")
+            logging.error(f"❌ Exception type: {type(e).__name__}")
+            logging.error(f"❌ Full traceback:\n{traceback.format_exc()}")
+            logging.error(f"📊 Progress before error: {total_leads_created} leads created from {batch_number - 1} completed batches")
+            # Don't silently continue - re-raise to make the error visible
+            raise
         
         return total_leads_created
     
@@ -447,15 +462,18 @@ class LeadGenerationOrchestrator:
                     else:
                         logging.warning(f"⚠️ Website scraping failed for {website_url} (blocked/inaccessible)")
                         website_failed = True
-                        content_summaries = ["Website content not available - site may be protected or blocked"]
+                        # Don't mention the website is blocked - just use job title/industry info
+                        content_summaries = []
                 except Exception as website_error:
                     logging.warning(f"⚠️ Website scraping exception for {website_url}: {website_error}")
                     website_failed = True
-                    content_summaries = ["Website content not available - scraping failed"]
+                    # Don't mention scraping failed - generate based on other data
+                    content_summaries = []
             else:
                 logging.warning(f"No website URL for contact {contact.get('name')}")
                 website_failed = True
-                content_summaries = ["No website URL available"]
+                # No website, so generate based on name/title/company only
+                content_summaries = []
             
             # Step 3: Prepare contact data for icebreaker generation (ALWAYS PROCEED)
             contact_info = {

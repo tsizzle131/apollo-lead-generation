@@ -180,7 +180,17 @@ class AIProcessor:
             if company_name:
                 profile += f" at {company_name}"
             
-            website_content = "\n".join(website_summaries)
+            # Handle empty website summaries gracefully
+            if website_summaries and len(website_summaries) > 0:
+                website_content = "\n".join(website_summaries)
+            else:
+                # No website data - focus on role and industry
+                website_content = f"""No website content available. Create an icebreaker based on:
+- Their role/title: {headline if headline else 'Not specified'}
+- Company: {company_name if company_name else 'Not specified'}
+- Industry context and common challenges in their field
+- DO NOT mention that their website is blocked, protected, or unavailable
+- Focus on industry-specific pain points or opportunities"""
             
             # Enhanced prompt that requests both icebreaker and subject line
             enhanced_prompt = ICEBREAKER_PROMPT + """

@@ -358,6 +358,11 @@ class SupabaseManager:
     def get_unprocessed_contacts(self, limit: int = 100, min_confidence: float = 0.7) -> List[Dict[str, Any]]:
         """Get unprocessed contacts that meet quality criteria (within organization context)"""
         try:
+            logging.info(f"📋 Building query for unprocessed contacts...")
+            logging.info(f"  - Organization ID: {self.organization_id}")
+            logging.info(f"  - Limit: {limit}")
+            logging.info(f"  - Min confidence: {min_confidence}")
+            
             query = (
                 self.client.table("raw_contacts")
                 .select("*, search_urls!inner(url)")
@@ -369,18 +374,26 @@ class SupabaseManager:
             )
             
             if self.organization_id:
+                logging.info(f"  - Adding organization filter: {self.organization_id}")
                 query = query.eq("organization_id", self.organization_id)
             
             # Apply limit only if specified (None means get ALL contacts)
             if limit is not None:
                 query = query.limit(limit)
             
+            logging.info(f"🔍 Executing query...")
             result = query.execute()
-            logging.info(f"🔍 Retrieved {len(result.data or [])} unprocessed contacts from database")
+            logging.info(f"🔍 Query returned {len(result.data or [])} unprocessed contacts")
+            
+            if result.data and len(result.data) > 0:
+                logging.info(f"  - First contact: {result.data[0].get('name', 'Unknown')} ({result.data[0].get('email', 'No email')})")
+            
             return result.data or []
             
         except Exception as e:
-            logging.error(f"Error fetching unprocessed contacts: {e}")
+            import traceback
+            logging.error(f"❌ Error fetching unprocessed contacts: {e}")
+            logging.error(f"❌ Traceback:\n{traceback.format_exc()}")
             return []
 
     def mark_contact_processed(self, contact_id: str) -> bool:

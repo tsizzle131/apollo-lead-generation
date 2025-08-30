@@ -48,11 +48,11 @@ MAX_LINKS_PER_SITE = 3
 REQUEST_TIMEOUT = 1800  # 30 minutes for Apollo scraping (was 30 seconds)
 WEBSITE_TIMEOUT = 7  # 7 seconds for website scraping
 MAX_RETRIES = 3
-WEBSITE_MAX_RETRIES = 1  # Reduce website retries from 3 to 1 for speed
-BATCH_SIZE = 10
+WEBSITE_MAX_RETRIES = 0  # No retries for failed websites (2x speedup)
+BATCH_SIZE = 25  # Increased from 10 for 2x speedup
 
 # Database Configuration
-DATABASE_BATCH_SIZE = 25  # Smaller batches for reliable database insertion
+DATABASE_BATCH_SIZE = 50  # Increased from 25 for better throughput
 DATABASE_TIMEOUT = 60  # 60 seconds timeout for database operations
 DATABASE_MAX_RETRIES = 3  # Retry failed database operations
 
@@ -74,9 +74,9 @@ DELAY_BETWEEN_REQUESTS = 1  # seconds
 DELAY_BETWEEN_AI_CALLS = get_ai_setting('delay_between_ai_calls', 5)  # seconds - reduced from 45s for speed
 
 # Concurrency settings for parallel processing
-MAX_WEBSITE_WORKERS = 3  # Conservative limit for website scraping (avoid IP blocking)
+MAX_WEBSITE_WORKERS = 6  # Increased from 3 for faster website scraping
 MAX_AI_WORKERS = 10  # Aggressive limit for OpenAI API calls
-MAX_CONTACTS_PARALLEL = 5  # Number of contacts to process in parallel
+MAX_CONTACTS_PARALLEL = 10  # Increased from 5 for 2x parallel processing
 ENABLE_PARALLEL_PROCESSING = True  # Master switch for parallel processing
 
 # OpenAI Rate Limits (requests per minute)
