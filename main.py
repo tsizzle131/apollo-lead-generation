@@ -212,13 +212,19 @@ class LeadGenerationOrchestrator:
                         
                         raw_contacts = self.apify_scraper.scrape_contacts(search_url, total_records=record_count)
                     
-                    logging.info(f"🔍 DEBUG: Apollo scrape returned {len(raw_contacts) if raw_contacts else 0} contacts")
-                    if raw_contacts:
-                        logging.info(f"🔍 DEBUG: First contact sample: {raw_contacts[0].keys() if raw_contacts else 'N/A'}")
+                    # Log results based on scraper type
+                    if scraper_type == 'local':
+                        logging.info(f"🏪 Local business scrape returned {len(raw_contacts) if raw_contacts else 0} contacts")
+                        if raw_contacts:
+                            logging.info(f"📊 First business: {raw_contacts[0].get('name', 'Unknown')}")
+                            logging.info(f"📧 Has email: {bool(raw_contacts[0].get('email'))}")
+                    else:
+                        logging.info(f"🔍 Apollo scrape returned {len(raw_contacts) if raw_contacts else 0} contacts")
+                        if raw_contacts:
+                            logging.info(f"🔍 First contact sample: {raw_contacts[0].keys() if raw_contacts else 'N/A'}")
                     
                     if not raw_contacts:
-                        logging.error(f"❌ CRITICAL: No raw contacts found for {search_url}")
-                        logging.error(f"🔍 DEBUG: This should not happen if Apollo scrape succeeded")
+                        logging.error(f"❌ CRITICAL: No contacts found from {scraper_type} scraper for {search_url}")
                         self.supabase_manager.update_search_url_status(search_url_id, "failed")
                         continue
                     
@@ -441,13 +447,20 @@ class LeadGenerationOrchestrator:
             logging.info(f"📍 Progress: Batch {batch_number}, Contact {contact_index} of {total_contacts}")
             logging.info(f"🔄 STAGE 2: Processing contact {contact_index} of {total_contacts} - Researching websites")
             
-            # Extract website and research it
-            website_url = contact.get('website_url', '')
-            content_summaries = []
-            website_failed = False
+            # Check if contact already has website summaries (from local business scraper)
+            if contact.get('website_summaries'):
+                logging.info(f"✅ Using pre-scraped website summaries from local business scraper")
+                content_summaries = contact.get('website_summaries', [])
+                website_url = contact.get('website_url', '')
+                website_failed = False
+            else:
+                # Extract website and research it
+                website_url = contact.get('website_url', '')
+                content_summaries = []
+                website_failed = False
             
-            # Step 1: Scrape and summarize website (OPTIONAL - proceed even if fails)
-            if website_url:
+            # Step 1: Scrape and summarize website if not already done
+            if website_url and not content_summaries:
                 logging.info(f"🌐 [{batch_number}.{contact_index}] Scraping website: {website_url}")
                 try:
                     website_data = self.web_scraper.scrape_website_content(website_url)
@@ -481,6 +494,8 @@ class LeadGenerationOrchestrator:
                 'last_name': contact.get('last_name', ''),
                 'headline': contact.get('title', '') or contact.get('headline', ''),
                 'location': f"{contact.get('city', '')} {contact.get('country', '')}".strip(),
+                'company_name': contact.get('company_name') or contact.get('organization', {}).get('name', '') if isinstance(contact.get('organization'), dict) else '',
+                'is_business_contact': contact.get('is_business_contact', False),
                 'website_summaries': content_summaries
             }
             

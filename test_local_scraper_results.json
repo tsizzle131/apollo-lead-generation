@@ -1,57 +1,62 @@
 [
   {
-    "id": "ChIJG-gJw2vKRIYROWi2uwOp8QE",
-    "first_name": "Contact",
-    "last_name": "at Epoch Coffee",
-    "name": "Contact at Epoch Coffee",
-    "email": "info@epochcoffee.com",
-    "email_status": "guessed",
+    "id": "ChIJR55fXzRLW4YRuB1uAbBXcpg",
+    "first_name": "Radio Coffee & Beer",
+    "last_name": "(Business Contact)",
+    "name": "Radio Coffee & Beer Business Contact",
+    "email": "manager@radiocoffeeandbeer.com",
+    "email_status": "likely_valid",
     "title": "Business Contact",
-    "headline": "Epoch Coffee - Local Business",
+    "headline": "Business Contact at Radio Coffee & Beer",
+    "company_name": "Radio Coffee & Beer",
+    "is_business_contact": true,
     "organization": {
-      "name": "Epoch Coffee",
-      "website_url": "http://www.epochcoffee.com/",
-      "phone": "(512) 454-3762",
-      "address": "221 W N Loop Blvd, Austin, TX 78751",
+      "name": "Radio Coffee & Beer",
+      "website_url": "http://radiocoffeeandbeer.com/",
+      "phone": "(512) 394-7844",
+      "address": "4204 Menchaca Rd, Austin, TX 78704",
       "city": "Austin",
       "state": "Texas",
-      "category": "",
-      "rating": null,
-      "reviews_count": 2393
+      "category": "Coffee shop",
+      "description": "Hip spot for coffee, beer & pastries in wood-paneled digs, plus tables & a taco truck out back.",
+      "rating": 4.6,
+      "reviews_count": 3804,
+      "price_level": "$1\u201310"
     },
-    "website_url": "http://www.epochcoffee.com/",
-    "_source": "google_maps_only",
+    "website_url": "http://radiocoffeeandbeer.com/",
+    "website_summaries": [],
+    "_source": "local_business_enriched",
     "_google_maps_data": {
-      "title": "Epoch Coffee",
-      "description": "Cool, vibrant small-chain cafe featuring nibbles, tea & carefully brewed espresso drinks.",
+      "title": "Radio Coffee & Beer",
+      "description": "Hip spot for coffee, beer & pastries in wood-paneled digs, plus tables & a taco truck out back.",
       "price": "$1\u201310",
       "categoryName": "Coffee shop",
-      "address": "221 W N Loop Blvd, Austin, TX 78751",
-      "neighborhood": "North Loop",
-      "street": "221 W N Loop Blvd",
+      "address": "4204 Menchaca Rd, Austin, TX 78704",
+      "neighborhood": "South Lamar",
+      "street": "4204 Menchaca Rd",
       "city": "Austin",
-      "postalCode": "78751",
+      "postalCode": "78704",
       "state": "Texas",
       "countryCode": "US",
-      "website": "http://www.epochcoffee.com/",
-      "phone": "(512) 454-3762",
-      "phoneUnformatted": "+15124543762",
+      "website": "http://radiocoffeeandbeer.com/",
+      "phone": "(512) 394-7844",
+      "phoneUnformatted": "+15123947844",
       "claimThisBusiness": false,
       "location": {
-        "lat": 30.3186037,
-        "lng": -97.7245402
+        "lat": 30.2315079,
+        "lng": -97.7876869
       },
-      "totalScore": 4.5,
+      "totalScore": 4.6,
       "permanentlyClosed": false,
       "temporarilyClosed": false,
-      "placeId": "ChIJG-gJw2vKRIYROWi2uwOp8QE",
+      "placeId": "ChIJR55fXzRLW4YRuB1uAbBXcpg",
       "categories": [
         "Coffee shop"
       ],
-      "fid": "0x8644ca6bc309e81b:0x1f1a903bbb66839",
-      "cid": "140078896924485689",
-      "reviewsCount": 2393,
-      "imagesCount": 756,
+      "fid": "0x865b4b345f5f9e47:0x987257b0016e1db8",
+      "cid": "10984938854559915448",
+      "reviewsCount": 3804,
+      "imagesCount": 2343,
       "imageCategories": [
         "All",
         "Latest",
@@ -60,129 +65,131 @@
         "Food & drink",
         "Vibe",
         "Iced coffee",
-        "Coffee",
+        "Cappuccino",
+        "Thai tea",
+        "Beer",
         "Latte",
         "Cold brew coffee",
-        "By owner"
+        "By owner",
+        "Street View & 360\u00b0"
       ],
-      "scrapedAt": "2025-08-29T05:04:25.842Z",
+      "scrapedAt": "2025-08-31T01:49:50.659Z",
       "googleFoodUrl": null,
       "hotelAds": [],
       "openingHours": [
         {
           "day": "Monday",
-          "hours": "Open 24 hours"
+          "hours": "7\u202fAM to 12\u202fAM"
         },
         {
           "day": "Tuesday",
-          "hours": "Open 24 hours"
+          "hours": "7\u202fAM to 12\u202fAM"
         },
         {
           "day": "Wednesday",
-          "hours": "Open 24 hours"
+          "hours": "7\u202fAM to 12\u202fAM"
         },
         {
           "day": "Thursday",
-          "hours": "Open 24 hours"
+          "hours": "7\u202fAM to 12\u202fAM"
         },
         {
           "day": "Friday",
-          "hours": "Open 24 hours"
+          "hours": "7\u202fAM to 12\u202fAM"
         },
         {
           "day": "Saturday",
-          "hours": "Open 24 hours"
+          "hours": "7\u202fAM to 12\u202fAM"
         },
         {
           "day": "Sunday",
-          "hours": "Open 24 hours"
+          "hours": "7\u202fAM to 11\u202fPM"
         }
       ],
       "peopleAlsoSearch": [
         {
           "category": "People also search for",
-          "title": "Flightpath Coffeehouse",
-          "reviewsCount": 796,
-          "totalScore": 4.5
-        },
-        {
-          "category": "People also search for",
-          "title": "Bennu Coffee",
-          "reviewsCount": 1440,
-          "totalScore": 4.5
-        },
-        {
-          "category": "People also search for",
-          "title": "Spokesman Coffee",
-          "reviewsCount": 216,
-          "totalScore": 4.6
-        },
-        {
-          "category": "People also search for",
-          "title": "Terrible Love",
-          "reviewsCount": 313,
+          "title": "Radix House Coffee",
+          "reviewsCount": 1600,
           "totalScore": 4.9
         },
         {
           "category": "People also search for",
-          "title": "Genuine Joe Coffeehouse (Russell's Bakery)",
-          "reviewsCount": 1257,
+          "title": "Radio/East",
+          "reviewsCount": 424,
           "totalScore": 4.7
+        },
+        {
+          "category": "People also search for",
+          "title": "Spokesman Coffee",
+          "reviewsCount": 1051,
+          "totalScore": 4.7
+        },
+        {
+          "category": "People also search for",
+          "title": "Cosmic Pickle",
+          "reviewsCount": 4184,
+          "totalScore": 4.7
+        },
+        {
+          "category": "People also search for",
+          "title": "Dear Austin Coffee Bar",
+          "reviewsCount": 105,
+          "totalScore": 4
         }
       ],
-      "placesTags": [],
+      "placesTags": [
+        {
+          "title": "Food & Drink",
+          "count": 2
+        }
+      ],
       "reviewsTags": [
         {
+          "title": "food trucks",
+          "count": 465
+        },
+        {
           "title": "patio",
+          "count": 122
+        },
+        {
+          "title": "bluegrass",
+          "count": 60
+        },
+        {
+          "title": "live music",
           "count": 43
         },
         {
-          "title": "laptop",
-          "count": 37
+          "title": "trivia",
+          "count": 35
         },
         {
-          "title": "students",
-          "count": 29
+          "title": "breakfast tacos",
+          "count": 27
         },
         {
-          "title": "pizza",
-          "count": 28
+          "title": "band",
+          "count": 24
         },
         {
           "title": "hipster",
-          "count": 17
+          "count": 21
         },
         {
-          "title": "studying",
+          "title": "nitro cold brew",
+          "count": 21
+        },
+        {
+          "title": "migas taco",
           "count": 11
-        },
-        {
-          "title": "horchata",
-          "count": 10
-        },
-        {
-          "title": "board games",
-          "count": 9
-        },
-        {
-          "title": "record store",
-          "count": 7
-        },
-        {
-          "title": "aeropress",
-          "count": 6
         }
       ],
       "additionalInfo": {
         "Service options": [
           {
             "Outdoor seating": true
-          },
-          {
-            "No-contact delivery": true
-          },
-          {
-            "Delivery": true
           },
           {
             "Onsite services": true
@@ -192,14 +199,29 @@
           },
           {
             "Dine-in": true
+          },
+          {
+            "Delivery": false
           }
         ],
         "Highlights": [
+          {
+            "Fast service": true
+          },
+          {
+            "Great beer selection": true
+          },
           {
             "Great coffee": true
           },
           {
             "Great tea selection": true
+          },
+          {
+            "Live music": true
+          },
+          {
+            "Live performances": true
           },
           {
             "Serves local specialty": true
@@ -235,21 +257,33 @@
         ],
         "Offerings": [
           {
+            "Alcohol": true
+          },
+          {
+            "Beer": true
+          },
+          {
             "Coffee": true
+          },
+          {
+            "Happy hour drinks": true
           },
           {
             "Late-night food": true
           },
           {
-            "Organic dishes": true
+            "Quick bite": true
           },
           {
-            "Quick bite": true
+            "Wine": true
           }
         ],
         "Dining options": [
           {
             "Breakfast": true
+          },
+          {
+            "Brunch": true
           },
           {
             "Lunch": true
@@ -265,6 +299,9 @@
           }
         ],
         "Amenities": [
+          {
+            "Bar onsite": true
+          },
           {
             "Restroom": true
           },
@@ -288,19 +325,10 @@
             "College students": true
           },
           {
-            "Family-friendly": true
-          },
-          {
             "Groups": true
           },
           {
-            "LGBTQ+ friendly": true
-          },
-          {
             "Tourists": true
-          },
-          {
-            "Transgender safespace": true
           }
         ],
         "Planning": [
@@ -335,37 +363,34 @@
             "Free street parking": true
           },
           {
-            "Usually plenty of parking": true
+            "Usually somewhat difficult to find a space": true
           }
         ],
         "Pets": [
           {
             "Dogs allowed": true
-          },
-          {
-            "Dogs allowed outside": true
           }
         ]
       },
       "gasPrices": [],
-      "url": "https://www.google.com/maps/search/?api=1&query=Epoch%20Coffee&query_place_id=ChIJG-gJw2vKRIYROWi2uwOp8QE",
+      "url": "https://www.google.com/maps/search/?api=1&query=Radio%20Coffee%20%26%20Beer&query_place_id=ChIJR55fXzRLW4YRuB1uAbBXcpg",
       "searchPageUrl": "https://www.google.com/maps/search/coffee%20shops%20Austin,%20TX?hl=en",
       "searchString": "coffee shops Austin, TX",
       "language": "en",
       "rank": 3,
       "isAdvertisement": false,
-      "imageUrl": "https://lh3.googleusercontent.com/gps-cs-s/AC9h4noxuab4LtHgbgDeJNFmrEz7hpEXWlJ9C2hGsqeVLE4x-Ai9RHXbkGSoOFAJpVzx1trNDN6IpygaK6Ufc4DeadsVzaD1MkJnyvn6KDIZ4V0kOdr7n74aAgLcFhHFlJtv9hxbdSkg=w408-h306-k-no",
-      "kgmid": "/g/1v76_180",
+      "imageUrl": "https://lh3.googleusercontent.com/gps-cs-s/AC9h4nomLU1PXt0a4BqyGzkiTz3cHQORVGmq-AW1ZeVfxWPyyGReZeMv-YCekSabQvXo11pdgl0JxHFWh36Ex58a8qEhcqvefjTIIyOb8m7sJX-t_DTtOM0VQTm5dLynEBIxXHX5vY0B_Q=w408-h306-k-no",
+      "kgmid": "/g/11bbt54057",
       "subTitle": null,
       "locatedIn": null,
-      "plusCode": "879G+C5 Austin, Texas",
-      "menu": "http://epochcoffee.square.site/",
+      "plusCode": "66J6+JW Austin, Texas",
+      "menu": null,
       "reviewsDistribution": {
-        "oneStar": 79,
-        "twoStar": 57,
-        "threeStar": 148,
-        "fourStar": 442,
-        "fiveStar": 1667
+        "oneStar": 62,
+        "twoStar": 43,
+        "threeStar": 169,
+        "fourStar": 685,
+        "fiveStar": 2845
       },
       "reserveTableUrl": null,
       "hotelStars": null,
@@ -374,351 +399,123 @@
       "checkOutDate": null,
       "similarHotelsNearby": null,
       "hotelReviewSummary": null,
-      "popularTimesLiveText": "Not busy",
-      "popularTimesLivePercent": 20,
+      "popularTimesLiveText": "Not too busy",
+      "popularTimesLivePercent": 38,
       "popularTimesHistogram": {
         "Su": [
           {
-            "hour": 4,
-            "occupancyPercent": 16
-          },
-          {
-            "hour": 5,
-            "occupancyPercent": 12
-          },
-          {
             "hour": 6,
-            "occupancyPercent": 14
+            "occupancyPercent": 0
           },
           {
             "hour": 7,
-            "occupancyPercent": 19
+            "occupancyPercent": 21
           },
           {
             "hour": 8,
-            "occupancyPercent": 27
-          },
-          {
-            "hour": 9,
             "occupancyPercent": 41
           },
           {
+            "hour": 9,
+            "occupancyPercent": 63
+          },
+          {
             "hour": 10,
-            "occupancyPercent": 55
+            "occupancyPercent": 77
           },
           {
             "hour": 11,
-            "occupancyPercent": 70
+            "occupancyPercent": 81
           },
           {
             "hour": 12,
-            "occupancyPercent": 83
+            "occupancyPercent": 80
           },
           {
             "hour": 13,
-            "occupancyPercent": 91
+            "occupancyPercent": 76
           },
           {
             "hour": 14,
-            "occupancyPercent": 100
+            "occupancyPercent": 73
           },
           {
             "hour": 15,
-            "occupancyPercent": 95
+            "occupancyPercent": 68
           },
           {
             "hour": 16,
-            "occupancyPercent": 85
+            "occupancyPercent": 57
           },
           {
             "hour": 17,
-            "occupancyPercent": 69
+            "occupancyPercent": 51
           },
           {
             "hour": 18,
-            "occupancyPercent": 63
-          },
-          {
-            "hour": 19,
-            "occupancyPercent": 63
-          },
-          {
-            "hour": 20,
-            "occupancyPercent": 64
-          },
-          {
-            "hour": 21,
-            "occupancyPercent": 66
-          },
-          {
-            "hour": 22,
-            "occupancyPercent": 67
-          },
-          {
-            "hour": 23,
-            "occupancyPercent": 59
-          },
-          {
-            "hour": 0,
             "occupancyPercent": 46
           },
           {
-            "hour": 1,
-            "occupancyPercent": 35
+            "hour": 19,
+            "occupancyPercent": 45
           },
           {
-            "hour": 2,
-            "occupancyPercent": 27
+            "hour": 20,
+            "occupancyPercent": 40
           },
           {
-            "hour": 3,
-            "occupancyPercent": 20
+            "hour": 21,
+            "occupancyPercent": 28
+          },
+          {
+            "hour": 22,
+            "occupancyPercent": 21
+          },
+          {
+            "hour": 23,
+            "occupancyPercent": 0
           }
         ],
         "Mo": [
           {
-            "hour": 4,
-            "occupancyPercent": 11
-          },
-          {
-            "hour": 5,
-            "occupancyPercent": 14
-          },
-          {
             "hour": 6,
-            "occupancyPercent": 20
+            "occupancyPercent": 0
           },
           {
             "hour": 7,
-            "occupancyPercent": 29
-          },
-          {
-            "hour": 8,
-            "occupancyPercent": 40
-          },
-          {
-            "hour": 9,
-            "occupancyPercent": 49
-          },
-          {
-            "hour": 10,
-            "occupancyPercent": 53
-          },
-          {
-            "hour": 11,
-            "occupancyPercent": 58
-          },
-          {
-            "hour": 12,
-            "occupancyPercent": 58
-          },
-          {
-            "hour": 13,
-            "occupancyPercent": 62
-          },
-          {
-            "hour": 14,
-            "occupancyPercent": 60
-          },
-          {
-            "hour": 15,
-            "occupancyPercent": 56
-          },
-          {
-            "hour": 16,
-            "occupancyPercent": 54
-          },
-          {
-            "hour": 17,
-            "occupancyPercent": 56
-          },
-          {
-            "hour": 18,
-            "occupancyPercent": 65
-          },
-          {
-            "hour": 19,
-            "occupancyPercent": 70
-          },
-          {
-            "hour": 20,
-            "occupancyPercent": 76
-          },
-          {
-            "hour": 21,
-            "occupancyPercent": 77
-          },
-          {
-            "hour": 22,
-            "occupancyPercent": 73
-          },
-          {
-            "hour": 23,
-            "occupancyPercent": 65
-          },
-          {
-            "hour": 0,
-            "occupancyPercent": 44
-          },
-          {
-            "hour": 1,
             "occupancyPercent": 28
           },
           {
-            "hour": 2,
-            "occupancyPercent": 20
-          },
-          {
-            "hour": 3,
-            "occupancyPercent": 14
-          }
-        ],
-        "Tu": [
-          {
-            "hour": 4,
-            "occupancyPercent": 10
-          },
-          {
-            "hour": 5,
-            "occupancyPercent": 11
-          },
-          {
-            "hour": 6,
-            "occupancyPercent": 19
-          },
-          {
-            "hour": 7,
-            "occupancyPercent": 34
-          },
-          {
             "hour": 8,
-            "occupancyPercent": 46
-          },
-          {
-            "hour": 9,
-            "occupancyPercent": 51
-          },
-          {
-            "hour": 10,
-            "occupancyPercent": 54
-          },
-          {
-            "hour": 11,
-            "occupancyPercent": 58
-          },
-          {
-            "hour": 12,
-            "occupancyPercent": 56
-          },
-          {
-            "hour": 13,
-            "occupancyPercent": 51
-          },
-          {
-            "hour": 14,
             "occupancyPercent": 44
           },
           {
-            "hour": 15,
-            "occupancyPercent": 41
-          },
-          {
-            "hour": 16,
-            "occupancyPercent": 37
-          },
-          {
-            "hour": 17,
-            "occupancyPercent": 40
-          },
-          {
-            "hour": 18,
-            "occupancyPercent": 49
-          },
-          {
-            "hour": 19,
-            "occupancyPercent": 64
-          },
-          {
-            "hour": 20,
-            "occupancyPercent": 80
-          },
-          {
-            "hour": 21,
-            "occupancyPercent": 92
-          },
-          {
-            "hour": 22,
-            "occupancyPercent": 98
-          },
-          {
-            "hour": 23,
-            "occupancyPercent": 90
-          },
-          {
-            "hour": 0,
-            "occupancyPercent": 61
-          },
-          {
-            "hour": 1,
-            "occupancyPercent": 37
-          },
-          {
-            "hour": 2,
-            "occupancyPercent": 21
-          },
-          {
-            "hour": 3,
-            "occupancyPercent": 16
-          }
-        ],
-        "We": [
-          {
-            "hour": 4,
-            "occupancyPercent": 10
-          },
-          {
-            "hour": 5,
-            "occupancyPercent": 10
-          },
-          {
-            "hour": 6,
-            "occupancyPercent": 16
-          },
-          {
-            "hour": 7,
-            "occupancyPercent": 29
-          },
-          {
-            "hour": 8,
-            "occupancyPercent": 40
-          },
-          {
             "hour": 9,
-            "occupancyPercent": 46
+            "occupancyPercent": 53
           },
           {
             "hour": 10,
-            "occupancyPercent": 47
+            "occupancyPercent": 61
           },
           {
             "hour": 11,
-            "occupancyPercent": 49
+            "occupancyPercent": 61
           },
           {
             "hour": 12,
-            "occupancyPercent": 58
-          },
-          {
-            "hour": 13,
             "occupancyPercent": 60
           },
           {
+            "hour": 13,
+            "occupancyPercent": 57
+          },
+          {
             "hour": 14,
-            "occupancyPercent": 62
+            "occupancyPercent": 55
           },
           {
             "hour": 15,
-            "occupancyPercent": 58
+            "occupancyPercent": 53
           },
           {
             "hour": 16,
@@ -726,73 +523,197 @@
           },
           {
             "hour": 17,
-            "occupancyPercent": 49
+            "occupancyPercent": 52
           },
           {
             "hour": 18,
-            "occupancyPercent": 54
+            "occupancyPercent": 58
           },
           {
             "hour": 19,
-            "occupancyPercent": 64
+            "occupancyPercent": 67
           },
           {
             "hour": 20,
-            "occupancyPercent": 84
+            "occupancyPercent": 67
           },
           {
             "hour": 21,
-            "occupancyPercent": 94
+            "occupancyPercent": 58
           },
           {
             "hour": 22,
-            "occupancyPercent": 96
+            "occupancyPercent": 38
           },
           {
             "hour": 23,
-            "occupancyPercent": 81
+            "occupancyPercent": 19
+          }
+        ],
+        "Tu": [
+          {
+            "hour": 6,
+            "occupancyPercent": 0
           },
           {
-            "hour": 0,
+            "hour": 7,
+            "occupancyPercent": 28
+          },
+          {
+            "hour": 8,
+            "occupancyPercent": 40
+          },
+          {
+            "hour": 9,
+            "occupancyPercent": 45
+          },
+          {
+            "hour": 10,
+            "occupancyPercent": 47
+          },
+          {
+            "hour": 11,
+            "occupancyPercent": 47
+          },
+          {
+            "hour": 12,
+            "occupancyPercent": 49
+          },
+          {
+            "hour": 13,
             "occupancyPercent": 50
           },
           {
-            "hour": 1,
-            "occupancyPercent": 30
+            "hour": 14,
+            "occupancyPercent": 50
           },
           {
-            "hour": 2,
-            "occupancyPercent": 18
+            "hour": 15,
+            "occupancyPercent": 47
           },
           {
-            "hour": 3,
-            "occupancyPercent": 14
+            "hour": 16,
+            "occupancyPercent": 45
+          },
+          {
+            "hour": 17,
+            "occupancyPercent": 38
+          },
+          {
+            "hour": 18,
+            "occupancyPercent": 40
+          },
+          {
+            "hour": 19,
+            "occupancyPercent": 41
+          },
+          {
+            "hour": 20,
+            "occupancyPercent": 41
+          },
+          {
+            "hour": 21,
+            "occupancyPercent": 37
+          },
+          {
+            "hour": 22,
+            "occupancyPercent": 29
+          },
+          {
+            "hour": 23,
+            "occupancyPercent": 21
+          }
+        ],
+        "We": [
+          {
+            "hour": 6,
+            "occupancyPercent": 0
+          },
+          {
+            "hour": 7,
+            "occupancyPercent": 32
+          },
+          {
+            "hour": 8,
+            "occupancyPercent": 45
+          },
+          {
+            "hour": 9,
+            "occupancyPercent": 52
+          },
+          {
+            "hour": 10,
+            "occupancyPercent": 51
+          },
+          {
+            "hour": 11,
+            "occupancyPercent": 51
+          },
+          {
+            "hour": 12,
+            "occupancyPercent": 53
+          },
+          {
+            "hour": 13,
+            "occupancyPercent": 50
+          },
+          {
+            "hour": 14,
+            "occupancyPercent": 46
+          },
+          {
+            "hour": 15,
+            "occupancyPercent": 42
+          },
+          {
+            "hour": 16,
+            "occupancyPercent": 40
+          },
+          {
+            "hour": 17,
+            "occupancyPercent": 42
+          },
+          {
+            "hour": 18,
+            "occupancyPercent": 51
+          },
+          {
+            "hour": 19,
+            "occupancyPercent": 61
+          },
+          {
+            "hour": 20,
+            "occupancyPercent": 66
+          },
+          {
+            "hour": 21,
+            "occupancyPercent": 57
+          },
+          {
+            "hour": 22,
+            "occupancyPercent": 44
+          },
+          {
+            "hour": 23,
+            "occupancyPercent": 27
           }
         ],
         "Th": [
           {
-            "hour": 4,
-            "occupancyPercent": 10
-          },
-          {
-            "hour": 5,
-            "occupancyPercent": 15
-          },
-          {
             "hour": 6,
-            "occupancyPercent": 27
+            "occupancyPercent": 0
           },
           {
             "hour": 7,
-            "occupancyPercent": 40
+            "occupancyPercent": 37
           },
           {
             "hour": 8,
-            "occupancyPercent": 54
+            "occupancyPercent": 52
           },
           {
             "hour": 9,
-            "occupancyPercent": 60
+            "occupancyPercent": 63
           },
           {
             "hour": 10,
@@ -804,263 +725,199 @@
           },
           {
             "hour": 12,
-            "occupancyPercent": 61
+            "occupancyPercent": 58
           },
           {
             "hour": 13,
-            "occupancyPercent": 59
+            "occupancyPercent": 58
           },
           {
             "hour": 14,
-            "occupancyPercent": 61
+            "occupancyPercent": 54
           },
           {
             "hour": 15,
-            "occupancyPercent": 66
+            "occupancyPercent": 50
           },
           {
             "hour": 16,
-            "occupancyPercent": 62
+            "occupancyPercent": 50
           },
           {
             "hour": 17,
-            "occupancyPercent": 60
+            "occupancyPercent": 52
           },
           {
             "hour": 18,
-            "occupancyPercent": 59
+            "occupancyPercent": 54
           },
           {
             "hour": 19,
-            "occupancyPercent": 62
+            "occupancyPercent": 52
           },
           {
             "hour": 20,
-            "occupancyPercent": 66
+            "occupancyPercent": 45
           },
           {
             "hour": 21,
-            "occupancyPercent": 69
+            "occupancyPercent": 36
           },
           {
             "hour": 22,
-            "occupancyPercent": 69
+            "occupancyPercent": 27
           },
           {
             "hour": 23,
-            "occupancyPercent": 61
-          },
-          {
-            "hour": 0,
-            "occupancyPercent": 39
-          },
-          {
-            "hour": 1,
-            "occupancyPercent": 24
-          },
-          {
-            "hour": 2,
-            "occupancyPercent": 15
-          },
-          {
-            "hour": 3,
-            "occupancyPercent": 11
+            "occupancyPercent": 18
           }
         ],
         "Fr": [
           {
-            "hour": 4,
-            "occupancyPercent": 10
-          },
-          {
-            "hour": 5,
-            "occupancyPercent": 16
-          },
-          {
             "hour": 6,
-            "occupancyPercent": 27
+            "occupancyPercent": 0
           },
           {
             "hour": 7,
-            "occupancyPercent": 43
+            "occupancyPercent": 32
           },
           {
             "hour": 8,
-            "occupancyPercent": 58
+            "occupancyPercent": 45
           },
           {
             "hour": 9,
-            "occupancyPercent": 67
+            "occupancyPercent": 54
           },
           {
             "hour": 10,
-            "occupancyPercent": 69
+            "occupancyPercent": 59
           },
           {
             "hour": 11,
-            "occupancyPercent": 65
-          },
-          {
-            "hour": 12,
-            "occupancyPercent": 65
-          },
-          {
-            "hour": 13,
             "occupancyPercent": 67
           },
           {
+            "hour": 12,
+            "occupancyPercent": 73
+          },
+          {
+            "hour": 13,
+            "occupancyPercent": 69
+          },
+          {
             "hour": 14,
-            "occupancyPercent": 68
-          },
-          {
-            "hour": 15,
-            "occupancyPercent": 65
-          },
-          {
-            "hour": 16,
             "occupancyPercent": 62
           },
           {
+            "hour": 15,
+            "occupancyPercent": 56
+          },
+          {
+            "hour": 16,
+            "occupancyPercent": 55
+          },
+          {
             "hour": 17,
-            "occupancyPercent": 60
+            "occupancyPercent": 54
           },
           {
             "hour": 18,
-            "occupancyPercent": 61
+            "occupancyPercent": 56
           },
           {
             "hour": 19,
-            "occupancyPercent": 65
+            "occupancyPercent": 53
           },
           {
             "hour": 20,
-            "occupancyPercent": 70
+            "occupancyPercent": 51
           },
           {
             "hour": 21,
-            "occupancyPercent": 81
+            "occupancyPercent": 44
           },
           {
             "hour": 22,
-            "occupancyPercent": 83
+            "occupancyPercent": 36
           },
           {
             "hour": 23,
-            "occupancyPercent": 80
-          },
-          {
-            "hour": 0,
-            "occupancyPercent": 58
-          },
-          {
-            "hour": 1,
-            "occupancyPercent": 38
-          },
-          {
-            "hour": 2,
-            "occupancyPercent": 22
-          },
-          {
-            "hour": 3,
-            "occupancyPercent": 15
+            "occupancyPercent": 25
           }
         ],
         "Sa": [
           {
-            "hour": 4,
-            "occupancyPercent": 13
-          },
-          {
-            "hour": 5,
-            "occupancyPercent": 14
-          },
-          {
             "hour": 6,
-            "occupancyPercent": 20
+            "occupancyPercent": 0
           },
           {
             "hour": 7,
-            "occupancyPercent": 29
+            "occupancyPercent": 31
           },
           {
             "hour": 8,
-            "occupancyPercent": 41
+            "occupancyPercent": 53
           },
           {
             "hour": 9,
-            "occupancyPercent": 60
+            "occupancyPercent": 73
           },
           {
             "hour": 10,
-            "occupancyPercent": 74
+            "occupancyPercent": 92
           },
           {
             "hour": 11,
-            "occupancyPercent": 77
+            "occupancyPercent": 100
           },
           {
             "hour": 12,
-            "occupancyPercent": 77
+            "occupancyPercent": 96
           },
           {
             "hour": 13,
-            "occupancyPercent": 74
-          },
-          {
-            "hour": 14,
             "occupancyPercent": 85
           },
           {
+            "hour": 14,
+            "occupancyPercent": 75
+          },
+          {
             "hour": 15,
-            "occupancyPercent": 88
-          },
-          {
-            "hour": 16,
-            "occupancyPercent": 89
-          },
-          {
-            "hour": 17,
-            "occupancyPercent": 76
-          },
-          {
-            "hour": 18,
-            "occupancyPercent": 69
-          },
-          {
-            "hour": 19,
-            "occupancyPercent": 58
-          },
-          {
-            "hour": 20,
             "occupancyPercent": 65
           },
           {
+            "hour": 16,
+            "occupancyPercent": 59
+          },
+          {
+            "hour": 17,
+            "occupancyPercent": 55
+          },
+          {
+            "hour": 18,
+            "occupancyPercent": 55
+          },
+          {
+            "hour": 19,
+            "occupancyPercent": 54
+          },
+          {
+            "hour": 20,
+            "occupancyPercent": 52
+          },
+          {
             "hour": 21,
-            "occupancyPercent": 71
+            "occupancyPercent": 45
           },
           {
             "hour": 22,
-            "occupancyPercent": 72
+            "occupancyPercent": 35
           },
           {
             "hour": 23,
-            "occupancyPercent": 66
-          },
-          {
-            "hour": 0,
-            "occupancyPercent": 48
-          },
-          {
-            "hour": 1,
-            "occupancyPercent": 32
-          },
-          {
-            "hour": 2,
-            "occupancyPercent": 22
-          },
-          {
-            "hour": 3,
-            "occupancyPercent": 15
+            "occupancyPercent": 23
           }
         ]
       },
@@ -1068,31 +925,31 @@
       "openingHoursBusinessConfirmationText": null,
       "questionsAndAnswers": [
         {
-          "question": "How would you describe the atmosphere?",
+          "question": "do you still have live music on Monday nights?\n",
           "answers": [
             {
-              "answer": "Epoch coffee shop has an inviting atmosphere. There is a friendly staff that always try to brighten your day. The customers are mostly laid back. Great place to chill and catch up with friends or meet cool people. ",
+              "answer": "They do! They have a Bluegrass band on Mondays. \n\nTheir full event schedule is on their website. ",
               "answeredBy": {}
             }
           ],
-          "askDate": "Frequently searched on Google",
+          "askDate": "5 years ago",
           "askedBy": {}
         }
       ],
       "updatesFromCustomers": {
-        "text": "Morning stop at Epoch Coffee - even on weekdays, people find time to work here. Great vibe, lots of folks with laptops. Also checked out the nearby record store, which added to the mood. Good coffee and fresh pastries.",
+        "text": "Stopped by Radio Coffee & Bar and tried the Mango Sticky Rice Matcha\u2014a smooth, sweet, and refreshing cold drink. Perfect balance of tropical mango and earthy matcha. Definitely worth a try! #AustinCoffee #MatchaLovers",
         "language": "en",
-        "postDate": "4 months ago",
+        "postDate": "6 months ago",
         "postedBy": {
           "name": "Dmitriy Mykalo",
           "url": "https://www.google.com/maps/contrib/117108013942234570106?hl=en-US",
           "title": "Local Guide",
-          "totalReviews": 704
+          "totalReviews": 705
         },
         "media": [
           {
-            "link": "https://lh3.googleusercontent.com/geougc-cs/AB3l90AhkW_bM4zTjVPEWTwmmfRt3HOS5qb3FYB5q4uWihlgh6mS3bwZIwxiNw3O46GocvCIZTDrvxTa1qrTVZMkIXSEYzrPc0Ml0PyfSGPEn2pZvqK8qX9PjNjJRMsUcGgzZii4HWjjZQ",
-            "postDate": "4 months ago"
+            "link": "https://lh3.googleusercontent.com/geougc-cs/AB3l90BmNLOt9-PHqYm1kuJ5H8dqNPcui-H2GO8M2yW-ZnhKAxcibco_AO208Lh2YVvtU0aNIik1X3eVvcnEMEY7CeZp4Y7dLLspKaQf6r0KJVVgojencGkIAdbs7oKk4SUki2uXrd2A-Q",
+            "postDate": "6 months ago"
           }
         ]
       },
@@ -1109,17 +966,21 @@
       "images": null,
       "reviews": [],
       "leadsEnrichment": []
-    }
+    },
+    "_website_scraped": false,
+    "_has_owner_name": false
   },
   {
     "id": "ChIJi2BGaZi0RIYRInyNRfvjmIM",
-    "first_name": "Contact",
-    "last_name": "at Spokesman Coffee",
-    "name": "Contact at Spokesman Coffee",
-    "email": "info@spokesmancoffee.com",
-    "email_status": "guessed",
+    "first_name": "Spokesman Coffee",
+    "last_name": "(Business Contact)",
+    "name": "Spokesman Coffee Business Contact",
+    "email": "manager@spokesmancoffee.com",
+    "email_status": "likely_valid",
     "title": "Business Contact",
-    "headline": "Spokesman Coffee - Local Business",
+    "headline": "Business Contact at Spokesman Coffee",
+    "company_name": "Spokesman Coffee",
+    "is_business_contact": true,
     "organization": {
       "name": "Spokesman Coffee",
       "website_url": "http://www.spokesmancoffee.com/",
@@ -1127,12 +988,15 @@
       "address": "440 E St Elmo Rd A2, Austin, TX 78745",
       "city": "Austin",
       "state": "Texas",
-      "category": "",
-      "rating": null,
-      "reviews_count": 1051
+      "category": "Coffee shop",
+      "description": "Roast house with artsy vibe serving craft coffee, wine, draft beer & food.",
+      "rating": 4.7,
+      "reviews_count": 1052,
+      "price_level": "$1\u201310"
     },
     "website_url": "http://www.spokesmancoffee.com/",
-    "_source": "google_maps_only",
+    "website_summaries": [],
+    "_source": "local_business_enriched",
     "_google_maps_data": {
       "title": "Spokesman Coffee",
       "description": "Roast house with artsy vibe serving craft coffee, wine, draft beer & food.",
@@ -1166,8 +1030,8 @@
       ],
       "fid": "0x8644b4986946608b:0x8398e3fb458d7c22",
       "cid": "9482579683771776034",
-      "reviewsCount": 1051,
-      "imagesCount": 1030,
+      "reviewsCount": 1052,
+      "imagesCount": 1032,
       "imageCategories": [
         "All",
         "Latest",
@@ -1182,7 +1046,7 @@
         "By owner",
         "Street View & 360\u00b0"
       ],
-      "scrapedAt": "2025-08-29T05:04:26.094Z",
+      "scrapedAt": "2025-08-31T01:49:50.923Z",
       "googleFoodUrl": null,
       "hotelAds": [],
       "openingHours": [
@@ -1251,7 +1115,7 @@
         {
           "category": "People also search for",
           "title": "Spokesman Coffee",
-          "reviewsCount": 216,
+          "reviewsCount": 217,
           "totalScore": 4.6
         },
         {
@@ -1275,8 +1139,8 @@
         {
           "category": "People also search for",
           "title": "Merfolk\u2019s Specialty Coffee",
-          "reviewsCount": 124,
-          "totalScore": 4.8
+          "reviewsCount": 126,
+          "totalScore": 4.7
         }
       ],
       "placesTags": [],
@@ -1532,7 +1396,7 @@
       "plusCode": "668Q+62 Austin, Texas",
       "menu": "http://spokesmancoffee.com/southmenu",
       "reviewsDistribution": {
-        "oneStar": 12,
+        "oneStar": 13,
         "twoStar": 11,
         "threeStar": 46,
         "fourStar": 142,
@@ -2093,15 +1957,15 @@
         },
         "media": [
           {
-            "link": "https://lh3.googleusercontent.com/geougc-cs/AB3l90B6Ch_dTpKpcZ7Qi_Xm1jeqxm7q8k5-_lywQXKMRDn-QgTXvjO_hdzRNm6G_8vXtKJBEs2ao53S5BrEkLdWiKGwUym8NVEwo6stxkWO6CZcnHfCeFf4_jMcy-3onJrpLOy-GERy",
+            "link": "https://lh3.googleusercontent.com/geougc-cs/AB3l90AQFxw4GsYZA3ltSttIGnFbd7ntmPN9B7d-qg3USsU5z2MUV5ox_ee3eiOoelA0aLnN6yVN_Tff9WtOfyM6URWnio9WP3elgn1F6qDKth9NYG9P4pMaCQ0n0fycOkNMANLnMp0O",
             "postDate": "11 months ago"
           },
           {
-            "link": "https://lh3.googleusercontent.com/geougc-cs/AB3l90ARRDT6HgdYq3BDUJ2Nkx2ty75TdJXlRbkhsEI-LZ9KOQ37jMgj34fVoxq5zcVGQffve8UA6h3VNNeEPwMR0AHbEGIz1Elcuhj3SwkFNC4m-FEGzUJEPPMVYzBlieKl9PksKIMgPA",
+            "link": "https://lh3.googleusercontent.com/geougc-cs/AB3l90AMSui59ObmF_rjFYulZMhjgpQabU-660p8orCR1HJvpBwaxfegFyOjgq2fwRF_fycXTfwN7yQA2-rwui6muj-DNrQm3Zvc-8HNyknvNUa666yKFdWPIua6zLXkbvfYUqSXWDVp9A",
             "postDate": "11 months ago"
           },
           {
-            "link": "https://lh3.googleusercontent.com/geougc-cs/AB3l90AB2CY9tRsZLHi57HNnD5oxOD61hr6W_6tWN1gAsC7bWIhUD9UUReKqjoHn7PC3XmuQqtTtIyX5F64AY-7KLk2mZcLpZC2NriU6Pb0idO4RLUJbih48SeEzBJQKlrrIdyY_1RU",
+            "link": "https://lh3.googleusercontent.com/geougc-cs/AB3l90Az5KuFml0jB74OyfcE93-d6afypOj-AI8DbKr00tXWuV2EWl6fiooaJshVbiFmzlO-TeCpqXseT_NJXmkKJBWAIXCbmn_sBYFadZVUeAlf77HXURXMDGGNF2EqslNQyIJmPZQ",
             "postDate": "11 months ago"
           }
         ]
@@ -2134,17 +1998,21 @@
       "images": null,
       "reviews": [],
       "leadsEnrichment": []
-    }
+    },
+    "_website_scraped": false,
+    "_has_owner_name": false
   },
   {
     "id": "ChIJTWZhRFW1RIYRrdGa7DPzT7w",
-    "first_name": "Contact",
-    "last_name": "at Mozart's Coffee Roasters",
-    "name": "Contact at Mozart's Coffee Roasters",
-    "email": "info@mozartscoffee.com",
-    "email_status": "guessed",
+    "first_name": "Mozart's Coffee Roasters",
+    "last_name": "(Business Contact)",
+    "name": "Mozart's Coffee Roasters Business Contact",
+    "email": "manager@mozartscoffee.com",
+    "email_status": "likely_valid",
     "title": "Business Contact",
-    "headline": "Mozart's Coffee Roasters - Local Business",
+    "headline": "Business Contact at Mozart's Coffee Roasters",
+    "company_name": "Mozart's Coffee Roasters",
+    "is_business_contact": true,
     "organization": {
       "name": "Mozart's Coffee Roasters",
       "website_url": "http://mozartscoffee.com/",
@@ -2152,12 +2020,15 @@
       "address": "3825 Lake Austin Blvd, Austin, TX 78703",
       "city": "Austin",
       "state": "Texas",
-      "category": "",
-      "rating": null,
-      "reviews_count": 9870
+      "category": "Coffee shop",
+      "description": "Beans flame-roasted on-site, plus bakery goods, frequent live music & patio seating on Lake Austin.",
+      "rating": 4.5,
+      "reviews_count": 9874,
+      "price_level": "$10\u201320"
     },
     "website_url": "http://mozartscoffee.com/",
-    "_source": "google_maps_only",
+    "website_summaries": [],
+    "_source": "local_business_enriched",
     "_google_maps_data": {
       "title": "Mozart's Coffee Roasters",
       "description": "Beans flame-roasted on-site, plus bakery goods, frequent live music & patio seating on Lake Austin.",
@@ -2189,8 +2060,8 @@
       ],
       "fid": "0x8644b5554461664d:0xbc4ff333ec9ad1ad",
       "cid": "13569331606629044653",
-      "reviewsCount": 9870,
-      "imagesCount": 15460,
+      "reviewsCount": 9874,
+      "imagesCount": 15466,
       "imageCategories": [
         "All",
         "Latest",
@@ -2205,7 +2076,7 @@
         "By owner",
         "Street View & 360\u00b0"
       ],
-      "scrapedAt": "2025-08-29T05:04:39.306Z",
+      "scrapedAt": "2025-08-31T01:49:52.468Z",
       "googleFoodUrl": null,
       "hotelAds": [],
       "openingHours": [
@@ -2260,13 +2131,13 @@
         {
           "category": "People also search for",
           "title": "Cafe Java",
-          "reviewsCount": 3192,
+          "reviewsCount": 3191,
           "totalScore": 4.7
         },
         {
           "category": "People also search for",
           "title": "Cherrywood Coffeehouse",
-          "reviewsCount": 2292,
+          "reviewsCount": 2291,
           "totalScore": 4.5
         }
       ],
@@ -2525,11 +2396,11 @@
       "plusCode": "76W8+58 Austin, Texas",
       "menu": "https://mozartscoffee.com/pages/mozartsmenu",
       "reviewsDistribution": {
-        "oneStar": 245,
+        "oneStar": 246,
         "twoStar": 220,
         "threeStar": 556,
-        "fourStar": 1953,
-        "fiveStar": 6896
+        "fourStar": 1954,
+        "fiveStar": 6898
       },
       "reserveTableUrl": null,
       "hotelStars": null,
@@ -2538,8 +2409,8 @@
       "checkOutDate": null,
       "similarHotelsNearby": null,
       "hotelReviewSummary": null,
-      "popularTimesLiveText": null,
-      "popularTimesLivePercent": null,
+      "popularTimesLiveText": "As busy as it gets",
+      "popularTimesLivePercent": 100,
       "popularTimesHistogram": {
         "Su": [
           {
@@ -3087,11 +2958,11 @@
         },
         "media": [
           {
-            "link": "https://lh3.googleusercontent.com/geougc-cs/AB3l90DDUYTXPV4M1yWFs4TEagaYOicByTz7NHrQGVhFEFvND3OiqD9zqTM4lmJEapAxrW01ZkQl-lB4x81hJhK8q2ZDyj0hGVGSzZ6T2xoA-Jfi5IgkocM6LflZR5Mr6fNVNWzgPioJ",
+            "link": "https://lh3.googleusercontent.com/geougc-cs/AB3l90AEb61hiDgWY1Xc9fcxAtddmODz_r464YwwSfdmC7EF2tqVkoMEltbp3O5PKi5PSUERPIs-2xv7Xg1u5H-NKWZvtfr7j3T4WlMUPlVvyTC0ytg6Ipz4KXJr-SLHf9KNzHu2FiNw",
             "postDate": "4 months ago"
           },
           {
-            "link": "https://lh3.googleusercontent.com/geougc-cs/AB3l90D8694QAMs1z_giRjBBya2Sw0Hij_xvNOvJfhvuRRifCgiJhlP5HtfaMpNe-ebWIzRxmRSisXxIdN6WSu1MWWJfYhUquMl7zjJFU-7Bezfn2gdEO4oGd2LGKm6Y4thIY2g6ug-k",
+            "link": "https://lh3.googleusercontent.com/geougc-cs/AB3l90BXchScjSD4hzuaY_KL6vf5NvnzxSd-UAiowjOQt1WL49NMlHgAxOmspnWjVz8muxmMAXZeP9DV-xSOSbvBIX9y9gyoVvV5T_oqrFizl8vSLzwWfW59w4cs5st8qht0Go5pIjq6",
             "postDate": "4 months ago"
           }
         ]
@@ -3109,6 +2980,8 @@
       "images": null,
       "reviews": [],
       "leadsEnrichment": []
-    }
+    },
+    "_website_scraped": false,
+    "_has_owner_name": false
   }
 ]

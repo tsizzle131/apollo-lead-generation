@@ -19,8 +19,10 @@ class LocalBusinessScraper:
         
         # Actor IDs
         self.google_maps_actor = "nwua9Gu5YrADL7ZDj"  # Google Maps Scraper
-        # LinkedIn scrapers all require payment - we'll rely on Google Maps data
-        # and create business-focused icebreakers instead of person-focused ones
+        
+        # Import web scraper for website enrichment
+        from web_scraper import WebScraper
+        self.web_scraper = WebScraper()
         
     def scrape_local_businesses(self, search_query: str, location: str, max_results: int = 100) -> List[Dict[str, Any]]:
         """
@@ -45,26 +47,18 @@ class LocalBusinessScraper:
             
             logging.info(f"✅ Found {len(businesses)} businesses from Google Maps")
             
-            # Step 2: Process business data with lead enrichment
+            # Step 2: Process business data with website enrichment
             enriched_contacts = []
             for idx, business in enumerate(businesses, 1):
                 business_name = business.get('title') or business.get('name', 'Unknown')
                 logging.info(f"🔍 Processing business {idx}/{len(businesses)}: {business_name}")
                 
-                # Check if Google Maps provided lead enrichment data
-                leads_data = business.get('leadsEnrichment', [])
-                if leads_data:
-                    logging.info(f"✅ Found {len(leads_data)} leads from Google Maps enrichment")
-                    for lead in leads_data:
-                        contact = self._create_contact_from_lead(lead, business)
-                        if contact:
-                            enriched_contacts.append(contact)
+                # Enrich business data with website scraping
+                enriched_contact = self._enrich_business_contact(business)
+                if enriched_contact:
+                    enriched_contacts.append(enriched_contact)
                 else:
-                    # No leads found - LinkedIn scrapers require payment
-                    # Create business contact from Google Maps data instead
-                    fallback_contact = self._create_fallback_contact(business)
-                    if fallback_contact:
-                        enriched_contacts.append(fallback_contact)
+                    logging.warning(f"⚠️ Could not create contact for {business_name}")
                 
                 # Rate limiting between enrichments
                 if idx < len(businesses):
@@ -98,11 +92,10 @@ class LocalBusinessScraper:
                 "exportPlaceUrls": False,
                 "saveHtml": False,
                 "saveScreenshots": False,
-                # Enable all enrichment features
-                "scrapeDirectEmails": True,  # Get direct emails
-                "enrichLeads": True,  # Enable lead enrichment (key field!)
-                "scrapeWebsiteDetails": True,  # Extract contact info from websites
-                "skipPlacesWithoutWebsite": False,  # Don't skip places without websites yet
+                # Get business data and emails
+                "scrapeDirectEmails": True,  # Get direct emails if available
+                "scrapeWebsiteDetails": False,  # We'll scrape websites ourselves for better control
+                "skipPlacesWithoutWebsite": False,  # Include all businesses
                 "proxyConfig": {
                     "useApifyProxy": True
                 }
@@ -144,208 +137,144 @@ class LocalBusinessScraper:
             traceback.print_exc()
             return []
     
-    def _create_contact_from_lead(self, lead: Dict[str, Any], business: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Create a contact from Google Maps lead enrichment data"""
-        try:
-            # Extract name parts
-            full_name = lead.get('name', '')
-            if not full_name:
-                full_name = lead.get('fullName', '')
-            
-            name_parts = full_name.split(' ', 1) if full_name else ['', '']
-            first_name = name_parts[0] if len(name_parts) > 0 else ''
-            last_name = name_parts[1] if len(name_parts) > 1 else ''
-            
-            # Get email - this is the most important field
-            email = lead.get('email', '') or lead.get('workEmail', '')
-            
-            if not email and not full_name:
-                return None  # Skip if no useful data
-            
-            # Build contact in Apollo format
-            contact = {
-                # Identification
-                'id': f"{business.get('placeId', '')}_{lead.get('id', '')}",
-                'first_name': first_name or 'Contact',
-                'last_name': last_name or f"at {business.get('title', '')}",
-                'name': full_name or f"Contact at {business.get('title', '')}",
-                
-                # Contact info
-                'email': email,
-                'email_status': 'verified' if email else '',
-                
-                # Professional info
-                'title': lead.get('jobTitle', '') or lead.get('title', 'Business Owner'),
-                'headline': lead.get('headline', '') or f"{lead.get('jobTitle', 'Owner')} at {business.get('title', '')}",
-                'linkedin_url': lead.get('linkedinUrl', '') or lead.get('linkedInProfile', ''),
-                
-                # Organization from Google Maps
-                'organization': {
-                    'name': business.get('title') or business.get('name', ''),
-                    'website_url': business.get('website') or business.get('url', ''),
-                    'phone': business.get('phone') or business.get('phoneNumber', ''),
-                    'address': business.get('address') or business.get('fullAddress', ''),
-                    'city': business.get('city', ''),
-                    'state': business.get('state', ''),
-                    'category': business.get('category') or business.get('type', ''),
-                },
-                
-                # Website for AI processing
-                'website_url': business.get('website') or business.get('url', ''),
-                
-                # Source tracking
-                '_source': 'google_maps_enriched',
-                '_google_maps_data': business,
-                '_lead_enrichment': lead
-            }
-            
-            return contact
-            
-        except Exception as e:
-            logging.warning(f"Error creating contact from lead: {e}")
-            return None
-    
-    def _enrich_with_linkedin(self, business: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """
-        Find and enrich business owner/decision makers using LinkedIn
-        """
+    def _enrich_business_contact(self, business: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Enrich business data with website scraping and create a contact"""
         try:
             business_name = business.get('title') or business.get('name', '')
-            location = business.get('city', '')
+            website = business.get('website') or business.get('url', '')
             
-            if not business_name:
-                return []
+            # Step 1: Try to enrich from website if available
+            website_data = {}
+            contact_email = None
+            contact_name = None
             
-            # Construct LinkedIn search query
-            # Search for owners, CEOs, managers at this business
-            search_queries = [
-                f'"{business_name}" owner',
-                f'"{business_name}" CEO',
-                f'"{business_name}" manager'
-            ]
-            
-            contacts = []
-            for query in search_queries:
-                linkedin_url = f"https://www.linkedin.com/search/results/people/?keywords={quote(query)}&origin=GLOBAL_SEARCH_HEADER"
-                
-                logging.info(f"🔗 Searching LinkedIn: {query}")
-                
-                # Use bebity actor for LinkedIn scraping
-                endpoint = f"{self.base_url}/acts/{self.linkedin_actor}/runs"
-                
-                headers = {
-                    "Accept": "application/json",
-                    "Authorization": f"Bearer {self.api_key}"
-                }
-                
-                payload = {
-                    "urls": [linkedin_url],
-                    "scrapeCompany": False,
-                    "scrapeEmail": True,  # Most important - get emails
-                    "scrapePhone": True,
-                    "maxResults": 3  # Get top 3 matches per query
-                }
-                
-                response = self._make_request_with_retry(
-                    endpoint,
-                    method="POST",
-                    headers=headers,
-                    json=payload
-                )
-                
-                if response and response.status_code in [200, 201]:
-                    run_data = response.json()
-                    run_id = run_data.get('data', {}).get('id')
+            if website:
+                logging.info(f"🌐 Scraping website for {business_name}: {website}")
+                try:
+                    # Scrape website for contact information
+                    scraped_data = self.web_scraper.scrape_website_content(website)
+                    website_data = scraped_data
                     
-                    if run_id:
-                        results = self._wait_for_run_completion(run_id, headers, "LinkedIn")
+                    # Extract emails from website content
+                    if scraped_data and 'summaries' in scraped_data:
+                        import re
+                        email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
                         
-                        # Process LinkedIn results
-                        for person in results:
-                            contact = self._format_linkedin_contact(person, business)
-                            if contact and contact.get('email'):
-                                contacts.append(contact)
-                                break  # Found a good contact, move to next business
-                
-                if contacts:
-                    break  # Found contacts, no need to try other queries
+                        for summary in scraped_data['summaries']:
+                            if isinstance(summary, dict):
+                                content = summary.get('content', '')
+                            else:
+                                content = str(summary)
+                            
+                            emails_found = re.findall(email_pattern, content)
+                            for email in emails_found:
+                                # Prefer non-generic emails
+                                if not any(prefix in email.lower() for prefix in ['info@', 'contact@', 'hello@']):
+                                    contact_email = email
+                                    break
+                            if contact_email:
+                                break
+                    
+                    logging.info(f"✅ Website scraped successfully for {business_name}")
+                except Exception as e:
+                    logging.warning(f"⚠️ Could not scrape website for {business_name}: {e}")
             
-            return contacts
+            # Step 2: Use Google Maps emails if no website email found
+            if not contact_email:
+                # Check for direct emails from Google Maps
+                gm_emails = business.get('directEmails', []) or business.get('emails', [])
+                if gm_emails and isinstance(gm_emails, list) and len(gm_emails) > 0:
+                    contact_email = gm_emails[0]
+                    logging.info(f"📧 Found email from Google Maps: {contact_email}")
             
-        except Exception as e:
-            logging.warning(f"⚠️ LinkedIn enrichment error: {e}")
-            return []
-    
-    def _format_linkedin_contact(self, person: Dict[str, Any], business: Dict[str, Any]) -> Dict[str, Any]:
-        """Format LinkedIn person data into Apollo-compatible contact format"""
-        try:
-            # Extract name parts
-            full_name = person.get('name', '')
-            name_parts = full_name.split(' ', 1) if full_name else ['', '']
-            first_name = name_parts[0] if len(name_parts) > 0 else ''
-            last_name = name_parts[1] if len(name_parts) > 1 else ''
+            # Step 3: Generate smart default email if still none
+            if not contact_email and website:
+                contact_email = self._generate_smart_email(business, website)
             
-            # Build contact in Apollo format
-            contact = {
-                # Identification
-                'id': person.get('profileId', ''),
-                'first_name': first_name,
-                'last_name': last_name,
-                'name': full_name,
-                
-                # Contact info
-                'email': person.get('email', ''),
-                'email_status': 'verified' if person.get('email') else '',
-                
-                # Professional info
-                'title': person.get('headline', ''),
-                'headline': person.get('headline', ''),
-                'linkedin_url': person.get('profileUrl', ''),
-                
-                # Organization from Google Maps
-                'organization': {
-                    'name': business.get('title') or business.get('name', ''),
-                    'website_url': business.get('website') or business.get('url', ''),
-                    'phone': business.get('phone') or business.get('phoneNumber', ''),
-                    'address': business.get('address') or business.get('fullAddress', ''),
-                    'city': business.get('city', ''),
-                    'state': business.get('state', ''),
-                    'category': business.get('category') or business.get('type', ''),
-                },
-                
-                # Website for AI processing
-                'website_url': business.get('website') or business.get('url', ''),
-                
-                # Source tracking
-                '_source': 'local_business',
-                '_google_maps_data': business,
-                '_linkedin_data': person
-            }
+            # Step 4: Extract owner/manager info from Google Maps data
+            # Try to find owner name from reviews or responses
+            owner_name = self._extract_owner_from_reviews(business)
             
-            return contact
+            # Create the enriched contact
+            return self._create_enriched_contact(business, contact_email, owner_name, website_data)
             
         except Exception as e:
-            logging.warning(f"Error formatting LinkedIn contact: {e}")
+            logging.error(f"Error enriching business contact: {e}")
             return None
     
-    def _create_fallback_contact(self, business: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Create a contact from Google Maps data when LinkedIn enrichment fails"""
+    def _extract_owner_from_reviews(self, business: Dict[str, Any]) -> Optional[str]:
+        """Try to extract owner/manager name from review responses"""
+        try:
+            # Check if business has owner responses to reviews
+            reviews = business.get('reviews', [])
+            if reviews and isinstance(reviews, list):
+                for review in reviews[:10]:  # Check first 10 reviews
+                    if isinstance(review, dict):
+                        response = review.get('response', {}) or review.get('ownerResponse', {})
+                        if response:
+                            # Owner responses often signed with name
+                            response_text = response.get('text', '') if isinstance(response, dict) else str(response)
+                            # Look for common sign-offs
+                            import re
+                            patterns = [
+                                r'(?:Thanks|Thank you|Sincerely|Best|Regards),?\s+([A-Z][a-z]+ ?[A-Z]?[a-z]*)',
+                                r'- ([A-Z][a-z]+ ?[A-Z]?[a-z]*)$',
+                                r'^([A-Z][a-z]+ ?[A-Z]?[a-z]*),? Owner',
+                                r'^([A-Z][a-z]+ ?[A-Z]?[a-z]*),? Manager',
+                            ]
+                            for pattern in patterns:
+                                match = re.search(pattern, response_text, re.MULTILINE)
+                                if match:
+                                    name = match.group(1).strip()
+                                    if len(name) > 2 and len(name) < 30:  # Reasonable name length
+                                        logging.info(f"👤 Found potential owner name: {name}")
+                                        return name
+        except Exception as e:
+            logging.debug(f"Could not extract owner from reviews: {e}")
+        return None
+    
+    def _generate_smart_email(self, business: Dict[str, Any], website: str) -> str:
+        """Generate a smart default email based on business type and domain"""
+        try:
+            from urllib.parse import urlparse
+            domain = urlparse(website).netloc
+            if domain:
+                domain = domain.replace('www.', '')
+                
+                # Get business category
+                category = (business.get('category') or business.get('categoryName') or '').lower()
+                
+                # Smart email prefixes based on business type
+                if any(word in category for word in ['restaurant', 'cafe', 'coffee', 'food', 'bar']):
+                    prefix = 'manager'
+                elif any(word in category for word in ['salon', 'spa', 'beauty', 'hair', 'nail']):
+                    prefix = 'owner'
+                elif any(word in category for word in ['medical', 'dental', 'clinic', 'doctor']):
+                    prefix = 'office'
+                elif any(word in category for word in ['store', 'shop', 'retail', 'boutique']):
+                    prefix = 'sales'
+                elif any(word in category for word in ['gym', 'fitness', 'yoga', 'pilates']):
+                    prefix = 'info'
+                else:
+                    prefix = 'contact'
+                
+                email = f"{prefix}@{domain}"
+                logging.info(f"📧 Generated smart email: {email}")
+                return email
+        except Exception as e:
+            logging.debug(f"Could not generate smart email: {e}")
+        return None
+    
+    def _create_enriched_contact(self, business: Dict[str, Any], email: str = None, 
+                                owner_name: str = None, website_data: Dict = None) -> Optional[Dict[str, Any]]:
+        """Create an enriched contact from all available data sources"""
         try:
             # Handle different field names from the Google Maps actor
             business_name = business.get('title') or business.get('name', '')
             if not business_name:
                 return None
             
-            # Try to extract email from Google Maps data
-            email = business.get('email', '')
             website = business.get('website') or business.get('url', '')
-            
-            if not email and website:
-                # Generate a generic contact email
-                domain = urlparse(website).netloc
-                if domain:
-                    domain = domain.replace('www.', '')
-                    email = f"info@{domain}"
             
             # Extract location parts
             full_address = business.get('address') or business.get('fullAddress', '')
@@ -362,23 +291,54 @@ class LocalBusinessScraper:
                     if len(state_zip) >= 1:
                         state = state_zip[0]
             
+            # Determine contact name
+            if owner_name:
+                name_parts = owner_name.split(' ', 1)
+                first_name = name_parts[0] if len(name_parts) > 0 else owner_name
+                last_name = name_parts[1] if len(name_parts) > 1 else ''
+                full_name = owner_name
+                title = "Owner" if "owner" in owner_name.lower() else "Manager"
+            else:
+                # Use business name with role
+                first_name = business_name
+                last_name = "(Business Contact)"
+                full_name = f"{business_name} Business Contact"
+                title = "Business Contact"
+            
+            # Determine email status
+            if email:
+                if '@' in email and not any(prefix in email.lower() for prefix in ['info@', 'contact@', 'hello@']):
+                    email_status = 'likely_valid'
+                else:
+                    email_status = 'business_email'
+            else:
+                email_status = ''
+            
+            # Extract business description and services
+            description = business.get('description', '')
+            category = business.get('category') or business.get('categoryName') or business.get('type', '')
+            rating = business.get('totalScore') or business.get('rating') or business.get('averageRating')
+            reviews_count = business.get('reviewsCount') or business.get('totalReviews')
+            
+            # Build enriched contact
             contact = {
-                # Use business name as contact name
+                # Identification
                 'id': business.get('placeId') or business.get('place_id', ''),
-                'first_name': business_name,
-                'last_name': '(Business)',
-                'name': business_name,
+                'first_name': first_name,
+                'last_name': last_name,
+                'name': full_name,
                 
                 # Contact info
-                'email': email,
-                'email_status': 'business_email' if email else '',  # Mark as business email
+                'email': email or '',
+                'email_status': email_status,
                 
                 # Professional info
-                'title': 'Business Contact',
-                'headline': f"{business_name} - {business.get('category') or business.get('type', 'Local Business')}",
-                'is_business_contact': True,  # Flag for AI processor
+                'title': title,
+                'headline': f"{title} at {business_name}",
+                'company_name': business_name,  # Add company name for better AI processing
+                'is_business_contact': not owner_name,  # Flag for AI processor
                 
-                # Organization data
+                # Organization data - enhanced with more details
                 'organization': {
                     'name': business_name,
                     'website_url': website,
@@ -386,23 +346,34 @@ class LocalBusinessScraper:
                     'address': full_address,
                     'city': city,
                     'state': state,
-                    'category': business.get('category') or business.get('type', ''),
-                    'rating': business.get('rating') or business.get('averageRating'),
-                    'reviews_count': business.get('reviewsCount') or business.get('totalReviews'),
+                    'category': category,
+                    'description': description,
+                    'rating': rating,
+                    'reviews_count': reviews_count,
+                    'price_level': business.get('price', ''),
                 },
                 
-                # Website for AI processing
+                # Website data for AI processing
                 'website_url': website,
+                'website_summaries': website_data.get('summaries', []) if website_data else [],
                 
                 # Source tracking
-                '_source': 'google_maps_only',
-                '_google_maps_data': business
+                '_source': 'local_business_enriched',
+                '_google_maps_data': business,
+                '_website_scraped': bool(website_data),
+                '_has_owner_name': bool(owner_name)
             }
             
-            return contact if (email or business.get('website')) else None
+            # Only return if we have some way to contact them
+            if email or website:
+                logging.info(f"✅ Created enriched contact for {business_name}")
+                return contact
+            else:
+                logging.warning(f"⚠️ No contact method for {business_name}")
+                return None
             
         except Exception as e:
-            logging.warning(f"Error creating fallback contact: {e}")
+            logging.warning(f"Error creating enriched contact: {e}")
             return None
     
     def _make_request_with_retry(self, url: str, method: str = "GET", **kwargs) -> Optional[requests.Response]:
@@ -440,8 +411,8 @@ class LocalBusinessScraper:
         check_interval = 5   # Check every 5 seconds
         elapsed_time = 0
         
-        # Determine actor ID based on source
-        actor_id = self.google_maps_actor if source == "Google Maps" else self.linkedin_actor
+        # Use Google Maps actor (only actor we have now)
+        actor_id = self.google_maps_actor
         
         while elapsed_time < max_wait_time:
             try:

@@ -39,7 +39,7 @@ def test_local_scraper():
         return False
     
     # Test 2: Small scrape test
-    print("2️⃣ Testing Google Maps + LinkedIn scraping...")
+    print("2️⃣ Testing Google Maps + Website Enrichment...")
     print("   Query: 'coffee shops'")
     print("   Location: 'Austin, TX'")
     print("   Max Results: 3 (for quick test)\n")
@@ -67,24 +67,27 @@ def test_local_scraper():
                 print(f"  Website: {contact.get('website_url', 'N/A')}")
                 print(f"  Title: {contact.get('title', 'N/A')}")
                 print(f"  Source: {contact.get('_source', 'N/A')}")
+                print(f"  Email Status: {contact.get('email_status', 'N/A')}")
                 
-                # Check if we got LinkedIn data
-                if contact.get('linkedin_url'):
-                    print(f"  LinkedIn: ✅ {contact['linkedin_url']}")
-                else:
-                    print(f"  LinkedIn: ❌ Not found")
+                # Check enrichment status
+                if contact.get('_website_scraped'):
+                    print(f"  Website Enriched: ✅")
+                if contact.get('_has_owner_name'):
+                    print(f"  Owner Name Found: ✅")
             
             print("\n" + "-" * 40)
             
             # Statistics
             with_email = sum(1 for c in contacts if c.get('email'))
-            with_linkedin = sum(1 for c in contacts if c.get('linkedin_url'))
+            with_website_enriched = sum(1 for c in contacts if c.get('_website_scraped'))
+            with_owner_name = sum(1 for c in contacts if c.get('_has_owner_name'))
             with_website = sum(1 for c in contacts if c.get('website_url'))
             
             print("\n📈 Statistics:")
             print(f"  Total contacts: {len(contacts)}")
             print(f"  With email: {with_email} ({with_email/len(contacts)*100:.0f}%)")
-            print(f"  With LinkedIn: {with_linkedin} ({with_linkedin/len(contacts)*100:.0f}%)")
+            print(f"  Website enriched: {with_website_enriched} ({with_website_enriched/len(contacts)*100:.0f}%)")
+            print(f"  Owner name found: {with_owner_name} ({with_owner_name/len(contacts)*100:.0f}%)")
             print(f"  With website: {with_website} ({with_website/len(contacts)*100:.0f}%)")
             
             # Test 3: Verify Apollo compatibility
@@ -124,8 +127,8 @@ def test_local_scraper():
 
 if __name__ == "__main__":
     print("\n🚀 Starting Local Business Scraper Test")
-    print("This will test Google Maps scraping and LinkedIn enrichment")
-    print("Using Apify actors: compass/google-maps-scraper and bebity/linkedin-premium-actor\n")
+    print("This will test Google Maps scraping with website enrichment")
+    print("Using Apify actor: Google Maps Scraper + Website scraping\n")
     
     success = test_local_scraper()
     
@@ -133,9 +136,9 @@ if __name__ == "__main__":
     if success:
         print("✅ ALL TESTS PASSED! Local Business Scraper is working correctly.")
         print("\nYou can now:")
-        print("1. Create a campaign with 'Local Businesses' type in the UI")
-        print("2. Enter a business query (e.g., 'restaurants') and location")
-        print("3. The scraper will find businesses and enrich with LinkedIn data")
+        print("1. Use format: 'local:business_type|location' in search URL")
+        print("2. Example: 'local:restaurants|Austin, TX'")
+        print("3. The scraper will find businesses and enrich from websites")
     else:
         print("❌ TESTS FAILED. Please check the error messages above.")
         print("\nCommon issues:")
