@@ -210,8 +210,26 @@ class AIProcessor:
                 "Connect through a shared challenge in their industry.",
             ])
             
+            # Replace variables in the prompt with actual values
+            prompt_with_values = ICEBREAKER_PROMPT
+            
+            # For local business flow, replace template variables
+            if '{{company_name}}' in prompt_with_values:
+                # This is the organization-specific prompt with variables
+                business_name = contact_info.get('name') or contact_info.get('company_name', '')
+                business_type = contact_info.get('organization', {}).get('category', '') or contact_info.get('category', 'business')
+                location_city = contact_info.get('organization', {}).get('city', '') or contact_info.get('city', '')
+                location_state = contact_info.get('organization', {}).get('state', '') or contact_info.get('state', '')
+                location = f"{location_city}, {location_state}" if location_city else "your area"
+                
+                # Replace all template variables
+                prompt_with_values = prompt_with_values.replace('{{company_name}}', business_name)
+                prompt_with_values = prompt_with_values.replace('{{business_type}}', business_type)
+                prompt_with_values = prompt_with_values.replace('{{location}}', location)
+                prompt_with_values = prompt_with_values.replace('{{website_summaries}}', website_content)
+            
             # Enhanced prompt that requests both icebreaker and subject line
-            enhanced_prompt = ICEBREAKER_PROMPT + variation_instructions + "\n" + connection_style + """
+            enhanced_prompt = prompt_with_values + variation_instructions + "\n" + connection_style + """
 
 ADDITIONALLY, create a compelling email subject line that:
 1. Is 30-50 characters MAX (mobile-optimized)

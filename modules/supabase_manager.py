@@ -211,12 +211,23 @@ class SupabaseManager:
                 logging.warning(f"🔍 DEBUG SUPABASE: No contacts provided - returning 0")
                 return 0
 
+            # Get campaign_id from search_url
+            campaign_id = None
+            try:
+                search_url_result = self.client.table("search_urls").select("campaign_id").eq("id", search_url_id).single().execute()
+                if search_url_result.data:
+                    campaign_id = search_url_result.data.get("campaign_id")
+                    logging.info(f"📌 Found campaign_id: {campaign_id} for search_url_id: {search_url_id}")
+            except Exception as e:
+                logging.warning(f"⚠️ Could not fetch campaign_id for search_url {search_url_id}: {e}")
+
             # Prepare contacts for insertion
             processed_contacts = []
             logging.info(f"🔍 DEBUG SUPABASE: Starting contact processing loop")
             for i, contact in enumerate(contacts):
                 processed_contact = {
                     "search_url_id": search_url_id,
+                    "campaign_id": campaign_id,  # Add the campaign_id
                     "apollo_id": contact.get("id"),
                     "last_name": contact.get("last_name"),
                     "name": contact.get("name") or contact.get("first_name"),
@@ -355,6 +366,36 @@ class SupabaseManager:
             
         return ""
 
+    def get_google_maps_contacts_needing_enrichment(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get Google Maps contacts that need email enrichment"""
+        try:
+            logging.info(f"🔍 Looking for Google Maps contacts needing email enrichment...")
+            
+            # Simple query - just get contacts without email but with website
+            query = (
+                self.client.table("raw_contacts")
+                .select("*")
+                .eq("processed", False)
+                .is_("email", "null")  # No email yet
+                .not_.is_("website_url", "null")  # But has website
+                .neq("website_url", "")
+            )
+            
+            if self.organization_id:
+                query = query.eq("organization_id", self.organization_id)
+            
+            if limit:
+                query = query.limit(limit)
+            
+            result = query.execute()
+            logging.info(f"📊 Found {len(result.data or [])} Google Maps contacts needing email enrichment")
+            
+            return result.data or []
+            
+        except Exception as e:
+            logging.error(f"Error getting contacts for enrichment: {e}")
+            return []
+    
     def get_unprocessed_contacts(self, limit: int = 100, min_confidence: float = 0.7) -> List[Dict[str, Any]]:
         """Get unprocessed contacts that meet quality criteria (within organization context)"""
         try:
@@ -370,7 +411,7 @@ class SupabaseManager:
                 .not_.is_("email", "null")
                 .not_.is_("website_url", "null")
                 .neq("website_url", "")
-                .eq("email_status", "verified")  # Use verified email status instead of confidence
+                .eq("email_status", "verified")  # Only accept verified emails - no guessed ones
             )
             
             if self.organization_id:
@@ -396,6 +437,28 @@ class SupabaseManager:
             logging.error(f"❌ Traceback:\n{traceback.format_exc()}")
             return []
 
+    def update_contact_email(self, contact_id: str, email: str, email_status: str = "verified") -> bool:
+        """Update a contact's email after website scraping"""
+        try:
+            result = (
+                self.client.table("raw_contacts")
+                .update({
+                    "email": email,
+                    "email_status": email_status
+                })
+                .eq("id", contact_id)
+                .execute()
+            )
+            
+            if result.data:
+                logging.info(f"✅ Updated contact {contact_id} with email: {email}")
+                return True
+            return False
+            
+        except Exception as e:
+            logging.error(f"Error updating contact email: {e}")
+            return False
+    
     def mark_contact_processed(self, contact_id: str) -> bool:
         """Mark a raw contact as processed"""
         try:

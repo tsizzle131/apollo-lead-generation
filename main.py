@@ -24,11 +24,11 @@ try:
     from sheets_manager import GoogleSheetsManager
 except ImportError:
     GoogleSheetsManager = None
-from supabase_manager import SupabaseManager
-from apify_scraper import ApifyScraper
-from local_business_scraper import LocalBusinessScraper
-from web_scraper import WebScraper
-from ai_processor import AIProcessor
+from modules.supabase_manager import SupabaseManager
+from modules.apify_scraper import ApifyScraper
+from modules.local_business_scraper import LocalBusinessScraper
+from modules.web_scraper import WebScraper
+from modules.ai_processor import AIProcessor
 import config
 
 # Configure logging
@@ -181,7 +181,11 @@ class LeadGenerationOrchestrator:
                     
                     if scraper_type == 'local':
                         # Parse local business search parameters
-                        # Expected format: "local:hair salons|Austin, TX"
+                        # Enhanced formats:
+                        # "local:hair salons|Austin, TX" - City search
+                        # "local:hair salons|Virginia" - State search
+                        # "local:hair salons|USA" - All 50 states
+                        # "local:hair salons|37.0871,-76.4730|5" - Coordinates with 5 mile radius
                         if search_url.startswith('local:'):
                             parts = search_url[6:].split('|')
                             query = parts[0] if len(parts) > 0 else 'businesses'
@@ -191,7 +195,8 @@ class LeadGenerationOrchestrator:
                             logging.info(f"🔍 Query: {query} in {location}")
                             logging.info(f"📊 Requesting up to {record_count} businesses")
                             
-                            raw_contacts = self.local_scraper.scrape_local_businesses(
+                            # Use the new raw scraping method for immediate database storage
+                            raw_contacts = self.local_scraper.scrape_local_businesses_raw(
                                 search_query=query,
                                 location=location,
                                 max_results=record_count
@@ -216,8 +221,12 @@ class LeadGenerationOrchestrator:
                     if scraper_type == 'local':
                         logging.info(f"🏪 Local business scrape returned {len(raw_contacts) if raw_contacts else 0} contacts")
                         if raw_contacts:
-                            logging.info(f"📊 First business: {raw_contacts[0].get('name', 'Unknown')}")
-                            logging.info(f"📧 Has email: {bool(raw_contacts[0].get('email'))}")
+                            logging.info(f"📊 Sample contacts from local scraper:")
+                            for i, contact in enumerate(raw_contacts[:3], 1):
+                                logging.info(f"  {i}. {contact.get('name', 'Unknown')}")
+                                logging.info(f"     Email: {contact.get('email', 'None')}")
+                                logging.info(f"     Status: {contact.get('email_status', 'N/A')}")
+                                logging.info(f"     Website: {'Yes' if contact.get('website_url') else 'No'}")
                     else:
                         logging.info(f"🔍 Apollo scrape returned {len(raw_contacts) if raw_contacts else 0} contacts")
                         if raw_contacts:
@@ -262,6 +271,10 @@ class LeadGenerationOrchestrator:
                     self.supabase_manager.update_search_url_status(search_url_id, "failed")
                     continue
             
+            # Stage 1.5: Enrich Google Maps contacts with emails (if needed)
+            logging.info(f"🔍 Checking for Google Maps contacts needing email enrichment...")
+            self._enrich_google_maps_contacts()
+            
             # Stage 2: Process qualified raw contacts into leads
             logging.info(f"🔄 STAGE 2: Website Research - Starting website scraping and summary generation")
             logging.info(f"🤖 Stage 2: Processing qualified contacts into leads with AI")
@@ -293,6 +306,83 @@ class LeadGenerationOrchestrator:
                 except Exception as status_error:
                     logging.error(f"Failed to update campaign status to failed: {status_error}")
             return False
+    
+    def _enrich_google_maps_contacts(self) -> int:
+        """
+        Stage 1.5: Enrich Google Maps contacts that have websites but no emails
+        This runs AFTER saving to database but BEFORE AI processing
+        MODIFIED: Limited time budget and email guessing to prevent blocking
+        """
+        try:
+            # Spend up to 5 minutes on enrichment but don't block the flow
+            MAX_ENRICHMENT_TIME = 300  # 5 minutes
+            MAX_CONTACTS_TO_ENRICH = 50  # Process first 50 contacts
+            
+            # Get Google Maps contacts needing enrichment
+            contacts = self.supabase_manager.get_google_maps_contacts_needing_enrichment(limit=MAX_CONTACTS_TO_ENRICH)
+            
+            if not contacts:
+                logging.info("✅ No Google Maps contacts need email enrichment")
+                return 0
+            
+            logging.info(f"📧 Found {len(contacts)} Google Maps contacts for quick enrichment (max {MAX_CONTACTS_TO_ENRICH})")
+            logging.info(f"⏱️ Time budget: {MAX_ENRICHMENT_TIME} seconds")
+            
+            # Import web scraper for email extraction
+            from modules.web_scraper import WebScraper
+            web_scraper = WebScraper()
+            
+            enriched_count = 0
+            guessed_count = 0
+            start_time = time.time()
+            
+            for i, contact in enumerate(contacts):
+                # Check time budget
+                if time.time() - start_time > MAX_ENRICHMENT_TIME:
+                    logging.info(f"⏰ Time budget exceeded after {i} contacts, continuing to Stage 2...")
+                    break
+                
+                website = contact.get('website_url')
+                if not website:
+                    continue
+                
+                contact_name = contact.get('name', 'Unknown')
+                
+                # Quick attempt to scrape (with short timeout)
+                email_found = False
+                try:
+                    # Try to extract email from website (this should have its own timeout)
+                    scraped_data = web_scraper.scrape_website_content(website)
+                    
+                    if scraped_data and scraped_data.get('emails'):
+                        # Found email(s) - use the first one
+                        email = scraped_data['emails'][0]
+                        
+                        # Update contact with found email
+                        if self.supabase_manager.update_contact_email(contact['id'], email, 'verified'):
+                            enriched_count += 1
+                            logging.info(f"  ✅ {contact_name}: Found {email}")
+                            email_found = True
+                        
+                except Exception as e:
+                    # Don't log full errors to reduce noise
+                    pass
+                
+                # If no email found, just skip this contact
+                if not email_found:
+                    logging.info(f"  ⏭️  {contact_name}: No email found, skipping")
+                
+                # Minimal delay to avoid overwhelming
+                time.sleep(0.5)
+            
+            logging.info(f"✅ Enrichment complete: Found {enriched_count} verified emails")
+            logging.info(f"⏱️ Time spent: {int(time.time() - start_time)} seconds")
+            logging.info(f"📊 Contacts without findable emails will be skipped")
+            return enriched_count
+            
+        except Exception as e:
+            logging.error(f"❌ Error enriching Google Maps contacts: {e}")
+            return 0
     
     def _process_raw_contacts_to_leads(self) -> int:
         """

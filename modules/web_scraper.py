@@ -2,6 +2,7 @@ import requests
 import logging
 import time
 import random
+import re
 from typing import List, Dict, Any, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from bs4 import BeautifulSoup
@@ -12,7 +13,7 @@ from config import (
     MAX_LINKS_PER_SITE, WEBSITE_TIMEOUT, WEBSITE_MAX_RETRIES,
     MAX_WEBSITE_WORKERS, ENABLE_PARALLEL_PROCESSING
 )
-from rate_limiter import rate_limiter
+from .rate_limiter import rate_limiter
 
 class WebScraper:
     def __init__(self):
@@ -34,14 +35,14 @@ class WebScraper:
             # Check if domain is blocked
             if rate_limiter.domain_throttler.is_domain_blocked(domain):
                 logging.warning(f"Domain {domain} is blocked due to repeated failures")
-                return {"links": [], "summaries": []}
+                return {"links": [], "summaries": [], "emails": []}
             
             logging.info(f"Starting website research for: {website_url}")
             
             # Step 1: Scrape the homepage with domain throttling
             homepage_content = self._scrape_page_with_throttle(website_url)
             if not homepage_content:
-                return {"links": [], "summaries": []}
+                return {"links": [], "summaries": [], "emails": []}
             
             # Step 2: Extract internal links
             internal_links = self._extract_internal_links(homepage_content, website_url)
@@ -60,16 +61,26 @@ class WebScraper:
             
             logging.info(f"Successfully scraped {len(page_summaries)} pages from {website_url}")
             
+            # Extract emails from all content
+            all_emails = self._extract_emails_from_content(homepage_content)
+            for summary in page_summaries:
+                if 'content' in summary:
+                    all_emails.extend(self._extract_emails_from_content(summary['content']))
+            
+            # Deduplicate emails
+            unique_emails = list(set(all_emails))
+            
             return {
                 "links": limited_links,
-                "summaries": page_summaries
+                "summaries": page_summaries,
+                "emails": unique_emails
             }
             
         except Exception as e:
             logging.error(f"Error scraping website {website_url}: {e}")
             domain = urlparse(website_url).netloc
             rate_limiter.mark_website_failed(domain)
-            return {"links": [], "summaries": []}
+            return {"links": [], "summaries": [], "emails": []}
     
     def _scrape_pages_parallel(self, base_url: str, links: List[str]) -> List[Dict[str, Any]]:
         """Scrape multiple pages in parallel with domain throttling"""
@@ -268,6 +279,27 @@ class WebScraper:
             
         except Exception:
             return link
+    
+    def _extract_emails_from_content(self, content: str) -> List[str]:
+        """Extract email addresses from content"""
+        try:
+            # Email regex pattern
+            email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+            emails = re.findall(email_pattern, content)
+            
+            # Filter out generic emails
+            filtered_emails = [
+                email for email in emails 
+                if not any(prefix in email.lower() for prefix in [
+                    'example@', 'test@', 'noreply@', 'no-reply@',
+                    'donotreply@', 'do-not-reply@', 'webmaster@'
+                ])
+            ]
+            
+            return filtered_emails
+        except Exception as e:
+            logging.warning(f"Error extracting emails: {e}")
+            return []
     
     def _html_to_markdown(self, html_content: str) -> str:
         """Convert HTML content to markdown"""

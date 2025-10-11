@@ -39,6 +39,10 @@ def get_api_key(key_name, env_name, default=None):
 APIFY_API_KEY = get_api_key('apify_api_key', 'APIFY_API_KEY', 'your_apify_api_key_here')
 OPENAI_API_KEY = get_api_key('openai_api_key', 'OPENAI_API_KEY')
 
+# LinkedIn and Email Verification API Keys
+LINKEDIN_ACTOR_ID = get_api_key('linkedin_actor_id', 'LINKEDIN_ACTOR_ID', 'bebity~linkedin-premium-actor')
+BOUNCER_API_KEY = get_api_key('bouncer_api_key', 'BOUNCER_API_KEY')
+
 # Google Sheets Configuration
 GOOGLE_SHEETS_ID = os.getenv('GOOGLE_SHEETS_ID', '1uRvJxPWdkJcEfXvZcWwVIm_FNy8fQecWvswH0hEYQSY')
 SEARCH_URL_SHEET = os.getenv('SEARCH_URL_SHEET', 'seach url')
@@ -47,9 +51,9 @@ LEADS_SHEET = os.getenv('LEADS_SHEET', 'leads')
 # Scraping Configuration
 MAX_LINKS_PER_SITE = 3
 REQUEST_TIMEOUT = 1800  # 30 minutes for Apollo scraping (was 30 seconds)
-WEBSITE_TIMEOUT = 7  # 7 seconds for website scraping
+WEBSITE_TIMEOUT = 30  # 30 seconds for website scraping (increased from 7)
 MAX_RETRIES = 3
-WEBSITE_MAX_RETRIES = 0  # No retries for failed websites (2x speedup)
+WEBSITE_MAX_RETRIES = 2  # 2 retries for failed websites (was 0)
 BATCH_SIZE = 25  # Increased from 10 for 2x speedup
 
 # Database Configuration
@@ -144,54 +148,75 @@ def get_organization_prompt():
                             global ORGANIZATION_CONFIG
                             ORGANIZATION_CONFIG = org
                             
-                            return f"""You're a sales expert writing personalized cold email openers for {org.get('product_name', 'our product')}.
+                            return f"""You're writing ultra-personalized cold emails connecting a local business's specific situation to how {org.get('product_name', 'our product')} helps them.
 
-**The Prospect:**
-Name: {{first_name}} {{last_name}}
-Role: {{headline}}
-Company: {{company_name}}
+**The Business:**
+Name: {{company_name}}
+Type: {{business_type}}
 Location: {{location}}
 
-**Their Business Context:**
+**What You Found About Them:**
 {{website_summaries}}
 
-**Your Product - {org.get('product_name', 'Our Product')}:**
-{org.get('product_description', 'Product/service')}
+**Your Product:**
+{org.get('product_name', 'Our Product')}: {org.get('product_description', 'Product/service')}
+Value Prop: {org.get('value_proposition', 'Helps businesses grow')}
+Target: {org.get('target_audience', 'Businesses')}
 
-**Value Proposition:**
-{org.get('value_proposition', 'Helps businesses grow')}
+**YOUR JOB: Connect something SPECIFIC you found about their business to how {org.get('product_name')} solves a related problem.**
 
-**Target Audience:**
-{org.get('target_audience', 'Businesses')}
+Use this formula:
+1. Reference a SPECIFIC detail from their website (service, team member, price, location, speciality)
+2. Connect it to a problem that naturally follows
+3. Hint that {org.get('product_name')} solves that exact problem
 
-**Your Task:**
-Write a 2-3 sentence icebreaker that:
-1. References ONE specific, non-obvious detail from their business (avoid generic compliments)
-2. Creates a natural bridge to how {org.get('product_name')} addresses a specific pain point or opportunity
-3. Uses varied language patterns - avoid overusing: "noticed your", "curious about", "might align", "let's chat"
+**Examples for different products:**
 
-**Language Variety Guidelines:**
-- Opening variations: Start with their name sometimes, a question other times, or an observation
-- Connection phrases: Use "addresses", "solves", "helps with", "tackles", "streamlines" instead of always "aligns with"
-- Closing variations: Mix between questions, statements, and soft CTAs
-- Avoid these overused patterns: "noticed your knack for", "impressed by", "caught my eye"
+If selling wellness products to a salon:
+"Hey Sarah, saw you offer those 3-hour Brazilian blowouts. Your stylists' backs must be killing them by end of day - found something that actually helps with that."
 
-**Tone:** {org.get('messaging_tone', 'professional')} but always conversational and genuine
+If selling marketing software to a restaurant:
+"Mike, noticed you're only on DoorDash but not Uber Eats. Guessing it's a pain managing multiple platforms? Got a simple fix for that."
 
-**Subject Line Requirements:**
-Create a subject line that:
-- Is 30-50 characters max
-- Creates genuine curiosity without clickbait
-- Uses one of these patterns (vary them):
-  • Question: "Quick question about [specific thing]"
-  • Observation: "[Company] + [specific observation]"
-  • Direct: "[Name], about [specific area]"
-  • Connection: "[Their thing] → [benefit]"
+If selling appointment software to a dentist:
+"Dr. Chen - saw you're still using that embedded calendar widget. Bet you get tons of no-shows from people booking randomly. Quick question about that..."
+
+**Pick the best pattern for the business type:**
+
+Pattern A - Service-Specific Pain:
+"[Name], saw you offer [specific service]. [Related problem that service causes]? [Hint at solution]"
+
+Pattern B - Competitor Comparison:
+"Noticed [competitor nearby] started [doing something]. You dealing with [related challenge] too?"
+
+Pattern C - Specific Detail → Problem:
+"[Name] - saw [specific detail from website]. Guessing [logical problem that follows]? [Hint at solution]"
+
+Pattern D - Time/Season Hook:
+"[Name], with [upcoming season/event], bet you're dealing with [seasonal problem]. Quick fix for that..."
+
+Pattern E - Staff/Operations Focus:
+"Saw you have [number] stylists/employees. [Problem that scale causes]? Found something interesting..."
+
+**CRITICAL RULES:**
+- Must reference something SPECIFIC from their website
+- Must connect to a problem {org.get('product_name')} actually solves
+- Keep under 50 words
+- Write casually (like texting)
+- No generic corporate language
+- Actually hint at how your product helps
+
+**Subject Lines - Make them specific:**
+- "[specific service they offer]"
+- "question about [specific problem]"
+- "[their location] + [solution hint]"
+- "your [specific thing] situation"
+- "[competitor] vs you"
 
 Return EXACTLY this JSON format:
 {{
-  "icebreaker": "your personalized message here",
-  "subject_line": "your subject line here"
+  "icebreaker": "your message connecting their specific detail to your product's solution",
+  "subject_line": "your ultra-specific 3-7 word subject"
 }}"""
                             
         except Exception as e:
@@ -216,13 +241,15 @@ ICEBREAKER_PROMPT = get_organization_prompt()
 
 def reload_config():
     """Reload configuration from UI state file"""
-    global _ui_config, APIFY_API_KEY, OPENAI_API_KEY, AI_MODEL_SUMMARY, AI_MODEL_ICEBREAKER, AI_TEMPERATURE, DELAY_BETWEEN_AI_CALLS, SUMMARY_PROMPT, ICEBREAKER_PROMPT
-    
+    global _ui_config, APIFY_API_KEY, OPENAI_API_KEY, LINKEDIN_ACTOR_ID, BOUNCER_API_KEY, AI_MODEL_SUMMARY, AI_MODEL_ICEBREAKER, AI_TEMPERATURE, DELAY_BETWEEN_AI_CALLS, SUMMARY_PROMPT, ICEBREAKER_PROMPT
+
     _ui_config = load_ui_config()
-    
+
     # Reload all dynamic values
     APIFY_API_KEY = get_api_key('apify_api_key', 'APIFY_API_KEY', 'your_apify_api_key_here')
     OPENAI_API_KEY = get_api_key('openai_api_key', 'OPENAI_API_KEY')
+    LINKEDIN_ACTOR_ID = get_api_key('linkedin_actor_id', 'LINKEDIN_ACTOR_ID', 'bebity~linkedin-premium-actor')
+    BOUNCER_API_KEY = get_api_key('bouncer_api_key', 'BOUNCER_API_KEY')
     
     AI_MODEL_SUMMARY = get_ai_setting('ai_model_summary', 'gpt-4o-mini')
     AI_MODEL_ICEBREAKER = get_ai_setting('ai_model_icebreaker', 'gpt-4o')
