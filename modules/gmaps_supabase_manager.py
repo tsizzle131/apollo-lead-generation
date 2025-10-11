@@ -360,11 +360,7 @@ class GmapsSupabaseManager(SupabaseManager):
                                 enrichment_data: Dict[str, Any]) -> bool:
         """Save LinkedIn enrichment results to database with email quality tracking"""
         try:
-            # emails_generated in database is BOOLEAN (whether emails were generated)
-            # but enrichment_data has emails_generated as ARRAY (the actual generated emails)
-            emails_generated_list = enrichment_data.get("emails_generated", [])
-            has_generated_emails = bool(emails_generated_list and len(emails_generated_list) > 0)
-
+            # emails_generated is now TEXT[] in database - save the actual array of email patterns
             record = {
                 "business_id": business_id,
                 "campaign_id": campaign_id,
@@ -377,13 +373,13 @@ class GmapsSupabaseManager(SupabaseManager):
                 "location": enrichment_data.get("location"),
                 "connections": enrichment_data.get("connections"),
                 "emails_found": enrichment_data.get("emails_found", []),
-                "emails_generated": has_generated_emails,  # Save as boolean
+                "emails_generated": enrichment_data.get("emails_generated", []),  # Save array directly
                 "primary_email": enrichment_data.get("primary_email"),
                 "email_source": enrichment_data.get("email_source"),
                 "phone_numbers": enrichment_data.get("phone_numbers", []),
                 "error_message": enrichment_data.get("error"),
 
-                # NEW: Email quality tracking fields
+                # Email quality tracking fields
                 "email_extraction_attempted": enrichment_data.get("email_extraction_attempted", False),
                 "email_verified_source": enrichment_data.get("email_verified_source"),
                 "phone_number": enrichment_data.get("phone_number"),
