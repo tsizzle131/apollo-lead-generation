@@ -626,13 +626,18 @@ class LinkedInScraperParallel:
     def _generate_email_patterns(self, full_name: str, website: str) -> List[str]:
         """Generate common email patterns based on name and domain"""
         try:
+            # Skip Google Maps URLs - these are not real business websites
+            if 'google.com/maps' in website:
+                return []
+
             domain = urlparse(website).netloc
             if not domain:
                 return []
             domain = domain.replace('www.', '')
 
-            social_domains = ['facebook.com', 'instagram.com', 'linkedin.com', 'twitter.com']
-            if any(social in domain for social in social_domains):
+            # Skip social media and other non-business domains
+            invalid_domains = ['facebook.com', 'instagram.com', 'linkedin.com', 'twitter.com', 'google.com', 'youtube.com']
+            if any(invalid in domain for invalid in invalid_domains):
                 return []
 
             name_parts = full_name.strip().split()
