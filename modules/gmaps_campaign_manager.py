@@ -774,7 +774,7 @@ class GmapsCampaignManager:
                                     except Exception as e:
                                         logging.debug(f"    Could not scrape website: {e}")
 
-                                # Prepare contact info for AI
+                                # Prepare contact info for AI with rich business context
                                 contact_info = {
                                     'first_name': business_name,
                                     'last_name': 'Business Contact',
@@ -782,7 +782,22 @@ class GmapsCampaignManager:
                                     'email': email,
                                     'headline': business.get('category', ''),
                                     'company_name': business_name,
-                                    'is_business_contact': True
+                                    'is_business_contact': True,
+                                    # Add rich context for personalization
+                                    'organization': {
+                                        'name': business_name,
+                                        'category': business.get('category', ''),
+                                        'city': business.get('city', ''),
+                                        'state': business.get('state', ''),
+                                        'rating': business.get('rating'),
+                                        'reviews_count': business.get('reviews_count'),
+                                        'description': business.get('description', '')
+                                    },
+                                    'website_url': website,
+                                    'city': business.get('city', ''),
+                                    'state': business.get('state', ''),
+                                    'rating': business.get('rating'),
+                                    'reviews_count': business.get('reviews_count')
                                 }
 
                                 # Generate icebreaker

@@ -4,11 +4,11 @@ from typing import List, Dict, Any, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from openai import OpenAI
 from config import (
-    OPENAI_API_KEY, AI_MODEL_SUMMARY, AI_MODEL_ICEBREAKER, 
-    AI_TEMPERATURE, DELAY_BETWEEN_AI_CALLS, SUMMARY_PROMPT, 
+    OPENAI_API_KEY, AI_MODEL_SUMMARY, AI_MODEL_ICEBREAKER,
+    AI_TEMPERATURE, DELAY_BETWEEN_AI_CALLS, SUMMARY_PROMPT,
     ICEBREAKER_PROMPT, reload_config, MAX_AI_WORKERS
 )
-from rate_limiter import rate_limiter
+from .rate_limiter import rate_limiter
 
 class AIProcessor:
     def __init__(self, api_key: str = None):
@@ -176,10 +176,16 @@ class AIProcessor:
             headline = contact_info.get('headline', '')
             location = contact_info.get('location', '')
             company_name = contact_info.get('company_name', contact_info.get('company', ''))
-            
-            profile = f"{first_name} {last_name} {headline}"
-            if company_name:
-                profile += f" at {company_name}"
+
+            # Build profile with null checks (Bug #7 fix)
+            name_parts = [p for p in [first_name, last_name] if p]
+            name = ' '.join(name_parts) if name_parts else 'there'
+            if headline:
+                profile = f"{name} {headline}"
+            elif company_name:
+                profile = f"{name} at {company_name}"
+            else:
+                profile = name
             
             # Handle empty website summaries gracefully
             if website_summaries and len(website_summaries) > 0:
@@ -310,9 +316,9 @@ Return your response in this EXACT JSON format:
                 else:
                     subject_line = f"Quick question, {first_name}"
             
-            # Ensure subject line isn't too long (trim if needed)
-            if len(subject_line) > 60:
-                subject_line = subject_line[:57] + "..."
+            # Ensure subject line isn't too long (trim if needed) - Bug #6 fix
+            if len(subject_line) > 50:
+                subject_line = subject_line[:47] + "..."
             
             # Validate icebreaker content
             if not icebreaker or len(icebreaker) < 20:
@@ -420,55 +426,91 @@ Return your response in this EXACT JSON format:
             reload_config()
             from config import AI_MODEL_ICEBREAKER, AI_TEMPERATURE
             
-            # Get business information
+            # Get business information with rich context
             business_name = contact_info.get('name') or contact_info.get('organization', {}).get('name', '')
-            category = contact_info.get('organization', {}).get('category', '')
+            category = contact_info.get('organization', {}).get('category', '') or contact_info.get('category', '')
             website = contact_info.get('website_url', '')
-            location = contact_info.get('organization', {}).get('city', '')
-            
-            website_content = "\n".join(website_summaries) if website_summaries else "No website content available"
-            
-            # B2B specific prompt
-            b2b_prompt = f"""
-You are writing to a BUSINESS EMAIL (info@, contact@, etc.), not a specific person.
-The email should be appropriate for whoever handles business inquiries at this company.
+            city = contact_info.get('organization', {}).get('city', '') or contact_info.get('city', '')
+            state = contact_info.get('organization', {}).get('state', '') or contact_info.get('state', '')
+            rating = contact_info.get('organization', {}).get('rating') or contact_info.get('rating')
+            reviews_count = contact_info.get('organization', {}).get('reviews_count') or contact_info.get('reviews_count')
+            description = contact_info.get('organization', {}).get('description', '')
 
-Business: {business_name}
+            # Format location nicely
+            location = f"{city}, {state}" if city and state else city or state or "your area"
+
+            # Format reputation info
+            reputation_info = ""
+            if rating and reviews_count:
+                reputation_info = f"Rating: {rating}/5 stars from {reviews_count} reviews"
+            elif rating:
+                reputation_info = f"Rating: {rating}/5 stars"
+
+            website_content = "\n".join(website_summaries) if website_summaries else "No specific website content available"
+
+            # Enhanced B2B prompt with personality and specific details
+            b2b_prompt = f"""
+You're reaching out to a LOCAL BUSINESS via their general business email (info@, contact@, hello@, etc.).
+
+BUSINESS DETAILS:
+Name: {business_name}
 Type: {category}
 Location: {location}
+{reputation_info}
+{f"Description: {description}" if description else ""}
 Website: {website}
 
-Website Content Summary:
+WEBSITE CONTENT (if available):
 {website_content}
 
-Create a professional B2B outreach email that:
-1. Addresses the business/team (not a specific person)
-2. Clearly states who we are and why we're reaching out
-3. Mentions something specific about THEIR business (from website/category)
-4. Asks to be directed to the right person (owner/manager/decision maker)
-5. Is concise and professional
+YOUR GOAL: Write a SHORT, personalized B2B email that shows you actually looked at their business.
 
-The email should feel like a legitimate business inquiry, not cold sales.
+KEY REQUIREMENTS:
+1. **Be SPECIFIC** - Reference something real about them:
+   - Their location ({location})
+   - Their excellent reviews ({rating} stars) if they have good ratings
+   - Something from their website/services
+   - Their specialty/niche within {category}
 
-Good opening examples:
-- "Hi {business_name} team,"
-- "Hello,"
-- "Good morning,"
+2. **Sound HUMAN** - Write like you're texting a friend:
+   - Conversational, not corporate
+   - Short sentences
+   - No buzzwords or jargon
+   - Be direct and honest
 
-Include a line like:
-- "Could you direct me to the person who handles [relevant area]?"
-- "I'd love to speak with whoever manages [relevant department]"
-- "Could you connect me with the owner or decision maker regarding [topic]?"
+3. **Show you researched** - Don't use generic lines like "I came across your business"
+   - Instead: "Saw you're a {category} in {location}" or "Noticed your {rating}-star rating"
 
-Subject line should be:
-- Professional and clear
-- Reference the business name or type
-- 30-50 characters
+4. **Get to the point FAST** - 3-4 sentences MAX
+   - Why you're reaching out
+   - What you can offer (be specific to their industry)
+   - Ask to be connected to owner/manager
+
+5. **Ask for right person** - End with:
+   - "Could you pass this to whoever handles [specific area]?"
+   - "Who's the best person to talk to about this?"
+
+AVOID:
+- "I came across your business" (too generic)
+- "I was impressed by" (sounds fake)
+- Long paragraphs
+- Corporate speak like "synergy" or "solutions"
+- Being vague about what you do
+
+SUBJECT LINE:
+- 25-40 characters max
+- Reference their specific location or category
+- Examples: "Question for {business_name[:15]}", "Quick idea for {city} {category}s"
+
+EXAMPLES OF GOOD OPENINGS:
+- "Hey - saw you're running a {category} in {location}."
+- "Quick question about {business_name}..."
+- "Noticed {business_name}'s {rating}-star rating..."
 
 Return JSON format:
 {{
-  "icebreaker": "your B2B outreach message",
-  "subject_line": "professional subject line"
+  "icebreaker": "your short, personalized email (3-4 sentences)",
+  "subject_line": "direct subject line (25-40 chars)"
 }}
 """
             
@@ -503,10 +545,13 @@ Return JSON format:
             
         except Exception as e:
             logging.error(f"Error generating B2B icebreaker: {e}")
-            # Fallback B2B message
+            # Fallback B2B message - keep it conversational
+            fallback_opening = f"Hey - noticed {business_name} is a {category or 'business'}" + (f" in {location}" if 'location' in locals() and location and location != "your area" else "")
+            fallback_ask = "Could you pass this to the owner or whoever handles new partnerships?"
+
             return {
-                "icebreaker": f"Hello {business_name} team,\n\nI came across your business and was impressed by what you're doing in {category or 'your industry'}.\n\nWe help businesses like yours [relevant value prop]. Could you direct me to the person who handles business development or partnerships?\n\nThank you for your time.",
-                "subject_line": f"Partnership opportunity for {business_name[:20]}"
+                "icebreaker": f"{fallback_opening}.\n\nWe help local {category or 'businesses'} [explain what you do]. Quick question - {fallback_ask}\n\nThanks!",
+                "subject_line": f"Quick Q for {business_name[:15]}"
             }
     
     def _retry_icebreaker_generation(self, contact_info: dict, website_summaries: list, attempt: int) -> dict:
