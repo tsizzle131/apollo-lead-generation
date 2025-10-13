@@ -13,18 +13,21 @@ from urllib.parse import quote, urlparse
 from config import APIFY_API_KEY, MAX_RETRIES, REQUEST_TIMEOUT
 
 class LocalBusinessScraper:
-    def __init__(self, api_key: str = APIFY_API_KEY):
+    def __init__(self, api_key: str = APIFY_API_KEY, ai_processor = None):
         self.api_key = api_key
         self.base_url = "https://api.apify.com/v2"
-        
+
         # Actor IDs
         self.google_maps_actor = "nwua9Gu5YrADL7ZDj"  # Google Maps Scraper
-        
+
         # Import web scraper for website enrichment
         from .web_scraper import WebScraper
         self.web_scraper = WebScraper()
+
+        # AI processor for icebreaker generation
+        self.ai_processor = ai_processor
         
-    def scrape_local_businesses(self, search_query: str, location: str, max_results: int = 100) -> List[Dict[str, Any]]:
+    def scrape_local_businesses(self, search_query: str, location: str, max_results: int = 1000) -> List[Dict[str, Any]]:
         """
         Scrape local businesses from Google Maps and enrich with LinkedIn
         
@@ -145,11 +148,10 @@ class LocalBusinessScraper:
                     else:
                         stats['failed'] += 1
                         logging.warning(f"    ⚠️ Failed to create contact for business")
-                
-                # Rate limiting between enrichments
-                if idx < len(businesses):
-                    time.sleep(2)  # Be respectful to APIs
-            
+
+                # Rate limiting handled by token bucket rate limiter
+                # Removed redundant time.sleep(2) delay (token bucket handles rate limiting)
+
             # Final statistics
             logging.info("")
             logging.info("="*70)
@@ -575,9 +577,49 @@ class LocalBusinessScraper:
             # Step 4: Extract owner/manager info from Google Maps data
             # Try to find owner name from reviews or responses
             owner_name = self._extract_owner_from_reviews(business)
-            
+
+            # Step 5: Generate icebreaker if AI processor available and business has email
+            icebreaker = None
+            subject_line = None
+            if self.ai_processor and contact_email:
+                try:
+                    logging.info(f"🤖 Generating icebreaker for {business_name}...")
+
+                    # Prepare contact info for AI processor
+                    contact_info = {
+                        'first_name': owner_name if owner_name else business_name,
+                        'last_name': 'Business Contact' if not owner_name else '',
+                        'name': owner_name or business_name,
+                        'email': contact_email,
+                        'headline': business.get('category') or business.get('categoryName', ''),
+                        'company_name': business_name,
+                        'is_business_contact': not owner_name,
+                        'organization': {
+                            'name': business_name,
+                            'category': business.get('category') or business.get('categoryName', ''),
+                            'city': business.get('city', ''),
+                            'state': business.get('state', ''),
+                            'description': business.get('description', ''),
+                            'rating': business.get('totalScore') or business.get('rating'),
+                            'reviews_count': business.get('reviewsCount') or business.get('totalReviews')
+                        }
+                    }
+
+                    # Generate icebreaker using website summaries
+                    website_summaries = website_data.get('summaries', []) if website_data else []
+                    icebreaker_result = self.ai_processor.generate_icebreaker(contact_info, website_summaries)
+
+                    icebreaker = icebreaker_result.get('icebreaker')
+                    subject_line = icebreaker_result.get('subject_line')
+
+                    logging.info(f"✅ Generated icebreaker for {business_name}")
+
+                except Exception as e:
+                    logging.warning(f"⚠️ Could not generate icebreaker for {business_name}: {e}")
+                    # Continue without icebreaker - don't fail the entire enrichment
+
             # Create the enriched contact
-            return self._create_enriched_contact(business, contact_email, owner_name, website_data)
+            return self._create_enriched_contact(business, contact_email, owner_name, website_data, icebreaker, subject_line)
             
         except Exception as e:
             logging.error(f"Error enriching business contact: {e}")
@@ -661,8 +703,9 @@ class LocalBusinessScraper:
             logging.debug(f"Could not generate smart email: {e}")
         return None
     
-    def _create_enriched_contact(self, business: Dict[str, Any], email: str = None, 
-                                owner_name: str = None, website_data: Dict = None) -> Optional[Dict[str, Any]]:
+    def _create_enriched_contact(self, business: Dict[str, Any], email: str = None,
+                                owner_name: str = None, website_data: Dict = None,
+                                icebreaker: str = None, subject_line: str = None) -> Optional[Dict[str, Any]]:
         """Create an enriched contact from all available data sources"""
         try:
             # Handle different field names from the Google Maps actor
@@ -721,17 +764,17 @@ class LocalBusinessScraper:
                 'first_name': first_name,
                 'last_name': last_name,
                 'name': full_name,
-                
+
                 # Contact info
                 'email': email or '',
                 'email_status': email_status,
-                
+
                 # Professional info
                 'title': title,
                 'headline': f"{title} at {business_name}",
                 'company_name': business_name,  # Add company name for better AI processing
                 'is_business_contact': not owner_name,  # Flag for AI processor
-                
+
                 # Organization data - enhanced with more details
                 'organization': {
                     'name': business_name,
@@ -746,11 +789,15 @@ class LocalBusinessScraper:
                     'reviews_count': reviews_count,
                     'price_level': business.get('price', ''),
                 },
-                
+
                 # Website data for AI processing
                 'website_url': website,
                 'website_summaries': website_data.get('summaries', []) if website_data else [],
-                
+
+                # Icebreaker fields
+                'icebreaker': icebreaker,
+                'subject_line': subject_line,
+
                 # Source tracking
                 '_source': 'local_business_enriched',
                 '_google_maps_data': business,

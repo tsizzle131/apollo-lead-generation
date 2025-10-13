@@ -55,15 +55,15 @@ class FacebookScraper:
             return []
     
     def _scrape_facebook_pages(self, facebook_urls: List[str]) -> List[Dict[str, Any]]:
-        """Run Apify Facebook Pages Scraper"""
+        """Run Apify Facebook Pages Scraper with comprehensive error handling"""
         try:
             endpoint = f"{self.base_url}/acts/{self.facebook_actor}/runs"
-            
+
             headers = {
                 "Accept": "application/json",
                 "Authorization": f"Bearer {self.api_key}"
             }
-            
+
             # Prepare Facebook Pages Scraper input
             payload = {
                 "startUrls": [{"url": url} for url in facebook_urls],
@@ -79,9 +79,10 @@ class FacebookScraper:
                 "postLimit": 0,
                 "commentsLimit": 0
             }
-            
+
             logging.info(f"🚀 Starting Facebook Pages scrape for {len(facebook_urls)} URLs")
-            
+            logging.info(f"   Actor ID: {self.facebook_actor}")
+
             # Start the actor run
             response = self._make_request_with_retry(
                 endpoint,
@@ -89,28 +90,64 @@ class FacebookScraper:
                 headers=headers,
                 json=payload
             )
-            
-            if not response or response.status_code not in [200, 201]:
-                logging.error(f"Failed to start Facebook scraper: Status {response.status_code if response else 'No response'}")
+
+            if not response:
+                logging.error(f"❌ Failed to start Facebook scraper - No response from Apify")
+                logging.error(f"   Actor ID: {self.facebook_actor}")
+                logging.error(f"   Check API key and actor ID validity")
                 return []
-            
-            run_data = response.json()
+
+            if response.status_code not in [200, 201]:
+                logging.error(f"❌ Failed to start Facebook scraper")
+                logging.error(f"   Status code: {response.status_code}")
+                logging.error(f"   Actor ID: {self.facebook_actor}")
+                try:
+                    error_data = response.json()
+                    logging.error(f"   Error details: {error_data}")
+                except:
+                    logging.error(f"   Response text: {response.text[:200]}")
+                return []
+
+            try:
+                run_data = response.json()
+            except ValueError as e:
+                logging.error(f"❌ Invalid JSON response when starting Facebook scraper")
+                logging.error(f"   Error: {e}")
+                logging.error(f"   Response text: {response.text[:200]}")
+                return []
+
             run_id = run_data.get('data', {}).get('id')
-            
+
             if not run_id:
-                logging.error("No run ID returned from Facebook scraper")
+                logging.error(f"❌ No run ID returned from Facebook scraper")
+                logging.error(f"   Actor ID: {self.facebook_actor}")
+                logging.error(f"   Response data: {run_data}")
                 return []
-            
+
             logging.info(f"⏳ Waiting for Facebook scrape to complete (Run ID: {run_id})")
-            
+
             # Wait for completion and get results
             results = self._wait_for_run_completion(run_id, headers)
-            logging.info(f"📊 Facebook scraper returned {len(results)} results")
-            
+
+            if not results:
+                logging.warning(f"⚠️  Facebook scraper returned no results")
+                logging.warning(f"   Run ID: {run_id}")
+                logging.warning(f"   This may be normal if no pages were accessible")
+            else:
+                logging.info(f"📊 Facebook scraper returned {len(results)} results")
+
             return results
-            
+
+        except KeyboardInterrupt:
+            logging.error(f"❌ Facebook scraping interrupted by user")
+            raise
         except Exception as e:
-            logging.error(f"Error in Facebook scraping: {e}")
+            logging.error(f"❌ Unexpected error in Facebook scraping")
+            logging.error(f"   Actor ID: {self.facebook_actor}")
+            logging.error(f"   Error type: {type(e).__name__}")
+            logging.error(f"   Error: {e}")
+            import traceback
+            logging.error(f"   Traceback: {traceback.format_exc()}")
             return []
     
     def _extract_contact_info(self, page_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -246,93 +283,218 @@ class FacebookScraper:
             return None
     
     def _make_request_with_retry(self, url: str, method: str = "GET", **kwargs) -> Optional[requests.Response]:
-        """Make HTTP request with retry logic"""
+        """Make HTTP request with retry logic and exponential backoff"""
         for attempt in range(MAX_RETRIES):
             try:
                 if method.upper() == "POST":
                     response = requests.post(url, timeout=REQUEST_TIMEOUT, **kwargs)
                 else:
                     response = requests.get(url, timeout=REQUEST_TIMEOUT, **kwargs)
-                
+
                 if response.status_code in [200, 201]:
                     return response
                 elif response.status_code == 429:
                     wait_time = 2 ** attempt
-                    logging.warning(f"Rate limited, waiting {wait_time}s before retry")
+                    logging.warning(f"⚠️  Rate limited by Apify (429), waiting {wait_time}s before retry {attempt + 1}/{MAX_RETRIES}")
+                    logging.warning(f"   URL: {url}")
                     time.sleep(wait_time)
                     continue
+                elif response.status_code == 401:
+                    logging.error(f"❌ Authentication failed (401) - Invalid or expired API key")
+                    logging.error(f"   URL: {url}")
+                    logging.error(f"   Actor ID: {self.facebook_actor}")
+                    return None
+                elif response.status_code == 404:
+                    logging.error(f"❌ Resource not found (404)")
+                    logging.error(f"   URL: {url}")
+                    logging.error(f"   Actor ID may be invalid: {self.facebook_actor}")
+                    return None
+                elif response.status_code >= 500:
+                    wait_time = 2 ** attempt
+                    logging.warning(f"⚠️  Server error ({response.status_code}), retrying in {wait_time}s (attempt {attempt + 1}/{MAX_RETRIES})")
+                    logging.warning(f"   URL: {url}")
+                    if attempt < MAX_RETRIES - 1:
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        return None
                 else:
-                    logging.warning(f"Request failed with status {response.status_code}")
-                    
-            except requests.exceptions.Timeout:
-                logging.warning(f"Request timeout, attempt {attempt + 1}")
+                    logging.warning(f"⚠️  Request failed with status {response.status_code} (attempt {attempt + 1}/{MAX_RETRIES})")
+                    logging.warning(f"   URL: {url}")
+                    if attempt < MAX_RETRIES - 1:
+                        time.sleep(2 ** attempt)
+                        continue
+                    else:
+                        return None
+
+            except requests.exceptions.Timeout as e:
+                wait_time = 2 ** attempt
+                logging.warning(f"⚠️  Request timeout after {REQUEST_TIMEOUT}s (attempt {attempt + 1}/{MAX_RETRIES})")
+                logging.warning(f"   URL: {url}")
+                logging.warning(f"   Error: {e}")
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(wait_time)
+                    continue
+            except requests.exceptions.ConnectionError as e:
+                wait_time = 2 ** attempt
+                logging.warning(f"⚠️  Connection error (attempt {attempt + 1}/{MAX_RETRIES})")
+                logging.warning(f"   URL: {url}")
+                logging.warning(f"   Error: {e}")
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(wait_time)
+                    continue
             except requests.exceptions.RequestException as e:
-                logging.warning(f"Request error: {e}")
-            
-            if attempt < MAX_RETRIES - 1:
-                time.sleep(2 ** attempt)
-        
+                logging.warning(f"⚠️  Request error (attempt {attempt + 1}/{MAX_RETRIES})")
+                logging.warning(f"   URL: {url}")
+                logging.warning(f"   Error type: {type(e).__name__}")
+                logging.warning(f"   Error: {e}")
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+
+        logging.error(f"❌ All {MAX_RETRIES} retry attempts failed")
+        logging.error(f"   URL: {url}")
         return None
     
     def _wait_for_run_completion(self, run_id: str, headers: dict) -> List[Dict[str, Any]]:
-        """Wait for Apify run to complete and return results"""
-        max_wait_time = 600  # 10 minutes max
+        """Wait for Apify run to complete and return results with fail-fast error handling"""
+        max_wait_time = 300  # 5 minutes max (reduced from 10 to fail faster)
         check_interval = 5   # Check every 5 seconds
         elapsed_time = 0
-        
+        consecutive_running = 0
+        max_consecutive_running = 36  # 3 minutes of stuck RUNNING state (36 * 5s)
+        last_status = None
+
         while elapsed_time < max_wait_time:
             try:
                 status_url = f"{self.base_url}/acts/{self.facebook_actor}/runs/{run_id}"
                 status_response = self._make_request_with_retry(status_url, headers=headers)
-                
+
                 if not status_response:
-                    logging.warning("Failed to get Facebook run status")
+                    logging.warning(f"⚠️  Failed to get Facebook run status (attempt {elapsed_time // check_interval})")
+                    logging.warning(f"   Run ID: {run_id}")
+                    logging.warning(f"   Actor ID: {self.facebook_actor}")
                     time.sleep(check_interval)
                     elapsed_time += check_interval
                     continue
-                
-                run_data = status_response.json()
+
+                try:
+                    run_data = status_response.json()
+                except ValueError as e:
+                    logging.error(f"❌ Invalid JSON response from Apify API")
+                    logging.error(f"   Run ID: {run_id}")
+                    logging.error(f"   Error: {e}")
+                    return []
+
                 run_status = run_data.get('data', {}).get('status', 'UNKNOWN')
-                
+
                 # Use info logging for better visibility
-                if elapsed_time % 10 == 0 or run_status != 'RUNNING':
+                if elapsed_time % 10 == 0 or run_status != last_status:
                     logging.info(f"🔄 Facebook status: {run_status} ({elapsed_time}s elapsed)")
-                
+
                 if run_status == 'SUCCEEDED':
                     logging.info("✅ Facebook scrape completed!")
-                    
+
                     # Get dataset results
                     dataset_id = run_data.get('data', {}).get('defaultDatasetId')
                     if not dataset_id:
-                        logging.error("No dataset ID found")
+                        logging.error("❌ No dataset ID found in successful run")
+                        logging.error(f"   Run ID: {run_id}")
+                        logging.error(f"   This may indicate an API response format change")
                         return []
-                    
+
                     dataset_url = f"{self.base_url}/datasets/{dataset_id}/items"
                     dataset_response = self._make_request_with_retry(dataset_url, headers=headers)
-                    
+
                     if not dataset_response:
-                        logging.error("Failed to fetch results")
+                        logging.error("❌ Failed to fetch dataset results")
+                        logging.error(f"   Dataset ID: {dataset_id}")
+                        logging.error(f"   Run ID: {run_id}")
                         return []
-                    
-                    results = dataset_response.json()
+
+                    try:
+                        results = dataset_response.json()
+                    except ValueError as e:
+                        logging.error(f"❌ Invalid JSON in dataset response")
+                        logging.error(f"   Dataset ID: {dataset_id}")
+                        logging.error(f"   Error: {e}")
+                        return []
+
                     return results if isinstance(results, list) else []
-                
+
                 elif run_status == 'FAILED':
-                    logging.error("Facebook scrape failed")
+                    error_message = run_data.get('data', {}).get('statusMessage', 'No error message')
+                    logging.error(f"❌ Facebook scrape failed")
+                    logging.error(f"   Run ID: {run_id}")
+                    logging.error(f"   Actor ID: {self.facebook_actor}")
+                    logging.error(f"   Error: {error_message}")
                     return []
-                
+
+                elif run_status == 'ABORTED':
+                    logging.error(f"❌ Facebook scrape was aborted")
+                    logging.error(f"   Run ID: {run_id}")
+                    logging.error(f"   This may indicate the actor was manually stopped or exceeded limits")
+                    return []
+
+                elif run_status == 'TIMED-OUT':
+                    logging.error(f"❌ Facebook scrape timed out on Apify's side")
+                    logging.error(f"   Run ID: {run_id}")
+                    logging.error(f"   The actor exceeded its execution time limit")
+                    return []
+
                 elif run_status in ['RUNNING', 'READY']:
+                    # Track consecutive RUNNING states to detect stuck actors
+                    if run_status == 'RUNNING':
+                        consecutive_running += 1
+
+                        # Fail fast if stuck in RUNNING for too long
+                        if consecutive_running >= max_consecutive_running:
+                            logging.error(f"❌ Facebook actor stuck in RUNNING state for {consecutive_running * check_interval}s")
+                            logging.error(f"   Run ID: {run_id}")
+                            logging.error(f"   Actor ID: {self.facebook_actor}")
+                            logging.error(f"   Aborting to prevent indefinite hang")
+                            logging.error(f"   This usually indicates the actor is stalled or encountering rate limits")
+                            return []
+                    else:
+                        consecutive_running = 0  # Reset counter if status changes
+
                     time.sleep(check_interval)
                     elapsed_time += check_interval
-                    
+
                     if elapsed_time % 30 == 0:
-                        logging.info(f"⏳ Still waiting... ({elapsed_time}s elapsed)")
-                
-            except Exception as e:
-                logging.error(f"Error checking status: {e}")
+                        logging.info(f"⏳ Still waiting... ({elapsed_time}s elapsed, status: {run_status})")
+
+                else:
+                    # Unknown status - log and continue
+                    logging.warning(f"⚠️  Unknown Facebook run status: {run_status}")
+                    logging.warning(f"   Run ID: {run_id}")
+                    time.sleep(check_interval)
+                    elapsed_time += check_interval
+
+                last_status = run_status
+
+            except requests.exceptions.Timeout as e:
+                logging.error(f"❌ Timeout while checking Facebook run status")
+                logging.error(f"   Run ID: {run_id}")
+                logging.error(f"   Error: {e}")
                 return []
-        
-        logging.error("Facebook scrape timed out")
+            except requests.exceptions.ConnectionError as e:
+                logging.error(f"❌ Connection error while checking Facebook run status")
+                logging.error(f"   Run ID: {run_id}")
+                logging.error(f"   Error: {e}")
+                return []
+            except Exception as e:
+                logging.error(f"❌ Unexpected error checking Facebook status")
+                logging.error(f"   Run ID: {run_id}")
+                logging.error(f"   Actor ID: {self.facebook_actor}")
+                logging.error(f"   Error type: {type(e).__name__}")
+                logging.error(f"   Error: {e}")
+                return []
+
+        logging.error(f"❌ Facebook scrape timed out after {max_wait_time}s")
+        logging.error(f"   Run ID: {run_id}")
+        logging.error(f"   Actor ID: {self.facebook_actor}")
+        logging.error(f"   Max wait time reduced to fail faster - consider increasing if legitimate runs need more time")
         return []
     
     def test_connection(self) -> bool:

@@ -43,12 +43,27 @@ class GmapsSupabaseManager(SupabaseManager):
         """Update campaign data"""
         try:
             updates["updated_at"] = datetime.now().isoformat()
-            
+
+            logging.info(f"🔄 Attempting to update campaign {campaign_id} with {len(updates)} fields")
+            logging.debug(f"   Update fields: {list(updates.keys())}")
+
             result = self.client.table("gmaps_campaigns").update(updates).eq("id", campaign_id).execute()
-            return len(result.data) > 0
-            
+
+            logging.info(f"📊 Update result: data length = {len(result.data) if result.data else 0}")
+            if result.data:
+                logging.info(f"✅ Campaign {campaign_id} updated successfully")
+                logging.debug(f"   Updated fields in response: {list(result.data[0].keys())}")
+                return True
+            else:
+                logging.error(f"❌ Campaign {campaign_id} update returned empty data - no rows matched or permissions issue")
+                logging.error(f"   This suggests either: 1) Campaign doesn't exist, 2) RLS blocking, or 3) Wrong API key")
+                return False
+
         except Exception as e:
-            logging.error(f"Error updating campaign: {e}")
+            logging.error(f"❌ EXCEPTION updating campaign {campaign_id}: {e}")
+            logging.error(f"   Exception type: {type(e).__name__}")
+            import traceback
+            logging.error(f"   Full traceback: {traceback.format_exc()}")
             return False
     
     def get_campaign(self, campaign_id: str) -> Dict[str, Any]:
@@ -223,6 +238,11 @@ class GmapsSupabaseManager(SupabaseManager):
                 # Set email_source based on whether email was found from Google Maps
                 email_source = "google_maps" if email else "not_found"
 
+                # Extract icebreaker fields if present
+                icebreaker = business.get('icebreaker')
+                subject_line = business.get('subject_line')
+                icebreaker_generated_at = datetime.now().isoformat() if icebreaker else None
+
                 record = {
                     "campaign_id": campaign_id,
                     "zip_code": zip_code,
@@ -251,6 +271,9 @@ class GmapsSupabaseManager(SupabaseManager):
                     "linkedin_url": business.get("linkedinUrl") or business.get("linkedin"),
                     "needs_enrichment": bool(self._extract_facebook_url(business)),
                     "enrichment_status": "pending" if self._extract_facebook_url(business) else "no_facebook",
+                    "icebreaker": icebreaker,
+                    "subject_line": subject_line,
+                    "icebreaker_generated_at": icebreaker_generated_at,
                     "raw_data": business,
                     "scraped_at": datetime.now().isoformat()
                 }

@@ -668,7 +668,7 @@ class LinkedInScraperParallel:
             return []
 
     def _make_request_with_retry(self, url: str, method: str = "GET", **kwargs) -> Optional[requests.Response]:
-        """Make HTTP request with retry logic"""
+        """Make HTTP request with retry logic and exponential backoff (thread-safe logging)"""
         for attempt in range(self.MAX_RETRIES):
             try:
                 if method.upper() == "POST":
@@ -680,24 +680,84 @@ class LinkedInScraperParallel:
                     return response
                 elif response.status_code == 429:
                     wait_time = 2 ** attempt
+                    with self.lock:
+                        logging.warning(f"⚠️  Rate limited by Apify (429), waiting {wait_time}s before retry {attempt + 1}/{self.MAX_RETRIES}")
+                        logging.warning(f"   URL: {url}")
                     time.sleep(wait_time)
                     continue
+                elif response.status_code == 401:
+                    with self.lock:
+                        logging.error(f"❌ Authentication failed (401) - Invalid or expired API key")
+                        logging.error(f"   URL: {url}")
+                    return None
+                elif response.status_code == 404:
+                    with self.lock:
+                        logging.error(f"❌ Resource not found (404)")
+                        logging.error(f"   URL: {url}")
+                        logging.error(f"   Actor ID may be invalid: {self.linkedin_actor or self.google_search_actor}")
+                    return None
+                elif response.status_code >= 500:
+                    wait_time = 2 ** attempt
+                    with self.lock:
+                        logging.warning(f"⚠️  Server error ({response.status_code}), retrying in {wait_time}s (attempt {attempt + 1}/{self.MAX_RETRIES})")
+                        logging.warning(f"   URL: {url}")
+                    if attempt < self.MAX_RETRIES - 1:
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        return None
+                else:
+                    with self.lock:
+                        logging.warning(f"⚠️  Request failed with status {response.status_code} (attempt {attempt + 1}/{self.MAX_RETRIES})")
+                        logging.warning(f"   URL: {url}")
+                    if attempt < self.MAX_RETRIES - 1:
+                        time.sleep(2 ** attempt)
+                        continue
+                    else:
+                        return None
 
-            except requests.exceptions.Timeout:
+            except requests.exceptions.Timeout as e:
+                wait_time = 2 ** attempt
+                with self.lock:
+                    logging.warning(f"⚠️  Request timeout after {self.REQUEST_TIMEOUT}s (attempt {attempt + 1}/{self.MAX_RETRIES})")
+                    logging.warning(f"   URL: {url}")
+                    logging.warning(f"   Error: {e}")
+                if attempt < self.MAX_RETRIES - 1:
+                    time.sleep(wait_time)
+                    continue
+            except requests.exceptions.ConnectionError as e:
+                wait_time = 2 ** attempt
+                with self.lock:
+                    logging.warning(f"⚠️  Connection error (attempt {attempt + 1}/{self.MAX_RETRIES})")
+                    logging.warning(f"   URL: {url}")
+                    logging.warning(f"   Error: {e}")
+                if attempt < self.MAX_RETRIES - 1:
+                    time.sleep(wait_time)
+                    continue
+            except requests.exceptions.RequestException as e:
+                with self.lock:
+                    logging.warning(f"⚠️  Request error (attempt {attempt + 1}/{self.MAX_RETRIES})")
+                    logging.warning(f"   URL: {url}")
+                    logging.warning(f"   Error type: {type(e).__name__}")
+                    logging.warning(f"   Error: {e}")
                 if attempt < self.MAX_RETRIES - 1:
                     time.sleep(2 ** attempt)
-            except requests.exceptions.RequestException:
-                if attempt < self.MAX_RETRIES - 1:
-                    time.sleep(2 ** attempt)
+                    continue
 
+        with self.lock:
+            logging.error(f"❌ All {self.MAX_RETRIES} retry attempts failed")
+            logging.error(f"   URL: {url}")
         return None
 
     def _wait_for_run_completion(self, run_id: str, headers: dict, source: str,
                                  batch_num: int) -> List[Dict[str, Any]]:
-        """Wait for Apify run to complete and return results (thread-safe)"""
-        max_wait_time = 120  # 2 minutes (reduced from 5)
+        """Wait for Apify run to complete and return results with fail-fast error handling (thread-safe)"""
+        max_wait_time = 120  # 2 minutes (already reasonable for batch operations)
         check_interval = 5
         elapsed_time = 0
+        consecutive_running = 0
+        max_consecutive_running = 24  # 2 minutes of stuck RUNNING state (24 * 5s)
+        last_status = None
 
         actor_id = self.google_search_actor if source == "Google Search" else self.linkedin_actor
 
@@ -707,41 +767,136 @@ class LinkedInScraperParallel:
                 status_response = self._make_request_with_retry(status_url, headers=headers)
 
                 if not status_response:
+                    with self.lock:
+                        logging.warning(f"  Batch {batch_num}: Failed to get {source} run status (attempt {elapsed_time // check_interval})")
+                        logging.warning(f"    Run ID: {run_id}")
+                        logging.warning(f"    Actor ID: {actor_id}")
                     time.sleep(check_interval)
                     elapsed_time += check_interval
                     continue
 
-                run_data = status_response.json()
+                try:
+                    run_data = status_response.json()
+                except ValueError as e:
+                    with self.lock:
+                        logging.error(f"  Batch {batch_num}: Invalid JSON response from Apify API")
+                        logging.error(f"    Source: {source}")
+                        logging.error(f"    Run ID: {run_id}")
+                        logging.error(f"    Error: {e}")
+                    return []
+
                 run_status = run_data.get('data', {}).get('status', 'UNKNOWN')
+
+                # Log status changes (thread-safe)
+                if run_status != last_status and run_status not in ['RUNNING', 'READY']:
+                    with self.lock:
+                        logging.info(f"  Batch {batch_num}: {source} status: {run_status}")
 
                 if run_status == 'SUCCEEDED':
                     dataset_id = run_data.get('data', {}).get('defaultDatasetId')
                     if not dataset_id:
+                        with self.lock:
+                            logging.error(f"  Batch {batch_num}: No dataset ID found in successful {source} run")
+                            logging.error(f"    Run ID: {run_id}")
                         return []
 
                     dataset_url = f"{self.base_url}/datasets/{dataset_id}/items"
                     dataset_response = self._make_request_with_retry(dataset_url, headers=headers)
 
                     if not dataset_response:
+                        with self.lock:
+                            logging.error(f"  Batch {batch_num}: Failed to fetch {source} dataset results")
+                            logging.error(f"    Dataset ID: {dataset_id}")
+                            logging.error(f"    Run ID: {run_id}")
                         return []
 
-                    results = dataset_response.json()
+                    try:
+                        results = dataset_response.json()
+                    except ValueError as e:
+                        with self.lock:
+                            logging.error(f"  Batch {batch_num}: Invalid JSON in {source} dataset response")
+                            logging.error(f"    Dataset ID: {dataset_id}")
+                            logging.error(f"    Error: {e}")
+                        return []
+
                     return results if isinstance(results, list) else []
 
                 elif run_status == 'FAILED':
+                    error_message = run_data.get('data', {}).get('statusMessage', 'No error message')
                     with self.lock:
                         logging.error(f"  Batch {batch_num}: {source} scrape failed")
+                        logging.error(f"    Run ID: {run_id}")
+                        logging.error(f"    Actor ID: {actor_id}")
+                        logging.error(f"    Error: {error_message}")
+                    return []
+
+                elif run_status == 'ABORTED':
+                    with self.lock:
+                        logging.error(f"  Batch {batch_num}: {source} scrape was aborted")
+                        logging.error(f"    Run ID: {run_id}")
+                        logging.error(f"    Actor may have been manually stopped or exceeded limits")
+                    return []
+
+                elif run_status == 'TIMED-OUT':
+                    with self.lock:
+                        logging.error(f"  Batch {batch_num}: {source} scrape timed out on Apify's side")
+                        logging.error(f"    Run ID: {run_id}")
+                        logging.error(f"    Actor exceeded its execution time limit")
                     return []
 
                 elif run_status in ['RUNNING', 'READY']:
+                    # Track consecutive RUNNING states to detect stuck actors
+                    if run_status == 'RUNNING':
+                        consecutive_running += 1
+
+                        # Fail fast if stuck in RUNNING for too long
+                        if consecutive_running >= max_consecutive_running:
+                            with self.lock:
+                                logging.error(f"  Batch {batch_num}: {source} actor stuck in RUNNING state for {consecutive_running * check_interval}s")
+                                logging.error(f"    Run ID: {run_id}")
+                                logging.error(f"    Actor ID: {actor_id}")
+                                logging.error(f"    Aborting to prevent indefinite hang")
+                                logging.error(f"    This usually indicates the actor is stalled or encountering rate limits")
+                            return []
+                    else:
+                        consecutive_running = 0  # Reset counter if status changes
+
                     time.sleep(check_interval)
                     elapsed_time += check_interval
 
+                else:
+                    # Unknown status - log and continue
+                    with self.lock:
+                        logging.warning(f"  Batch {batch_num}: Unknown {source} run status: {run_status}")
+                        logging.warning(f"    Run ID: {run_id}")
+                    time.sleep(check_interval)
+                    elapsed_time += check_interval
+
+                last_status = run_status
+
+            except requests.exceptions.Timeout as e:
+                with self.lock:
+                    logging.error(f"  Batch {batch_num}: Timeout while checking {source} run status")
+                    logging.error(f"    Run ID: {run_id}")
+                    logging.error(f"    Error: {e}")
+                return []
+            except requests.exceptions.ConnectionError as e:
+                with self.lock:
+                    logging.error(f"  Batch {batch_num}: Connection error while checking {source} run status")
+                    logging.error(f"    Run ID: {run_id}")
+                    logging.error(f"    Error: {e}")
+                return []
             except Exception as e:
                 with self.lock:
-                    logging.error(f"  Batch {batch_num}: Error checking {source} status: {e}")
+                    logging.error(f"  Batch {batch_num}: Unexpected error checking {source} status")
+                    logging.error(f"    Run ID: {run_id}")
+                    logging.error(f"    Actor ID: {actor_id}")
+                    logging.error(f"    Error type: {type(e).__name__}")
+                    logging.error(f"    Error: {e}")
                 return []
 
         with self.lock:
             logging.error(f"  Batch {batch_num}: {source} scrape timed out after {max_wait_time}s")
+            logging.error(f"    Run ID: {run_id}")
+            logging.error(f"    Actor ID: {actor_id}")
         return []
