@@ -448,7 +448,7 @@ Return your response in this EXACT JSON format:
 
             website_content = "\n".join(website_summaries) if website_summaries else "No specific website content available"
 
-            # Enhanced B2B prompt with personality and specific details
+            # Enhanced B2B prompt - Generate COMPLETE email body
             b2b_prompt = f"""
 You're reaching out to a LOCAL BUSINESS via their general business email (info@, contact@, hello@, etc.).
 
@@ -463,53 +463,62 @@ Website: {website}
 WEBSITE CONTENT (if available):
 {website_content}
 
-YOUR GOAL: Write a SHORT, personalized B2B email that shows you actually looked at their business.
+YOUR GOAL: Write a COMPLETE, personalized B2B email body (NOT just an opener). The user will only add their signature.
 
-KEY REQUIREMENTS:
-1. **Be SPECIFIC** - Reference something real about them:
-   - Their location ({location})
-   - Their excellent reviews ({rating} stars) if they have good ratings
-   - Something from their website/services
-   - Their specialty/niche within {category}
+EMAIL STRUCTURE (5-7 sentences total):
+1. **Personalized Opener** (1-2 sentences):
+   - Reference specific details: location, rating, reviews, or website content
+   - Show you actually researched them
+   - Examples:
+     * "Hey - saw you're running a {category} in {location}."
+     * "Noticed {business_name}'s {rating}-star rating and {reviews_count} reviews."
+     * "Caught your {category} business in {location} on Google Maps."
 
-2. **Sound HUMAN** - Write like you're texting a friend:
-   - Conversational, not corporate
-   - Short sentences
-   - No buzzwords or jargon
-   - Be direct and honest
+2. **Value Proposition** (2-3 sentences):
+   - Be SPECIFIC to their industry ({category})
+   - Explain WHAT you do and HOW it helps {category} businesses
+   - Use plain language - no buzzwords
+   - Examples for different industries:
+     * Restaurants: "We help restaurants in {location} get more online orders/reservations"
+     * Dentists: "We help dental practices fill their schedules with high-value patients"
+     * Retail: "We help local shops compete with big box stores online"
 
-3. **Show you researched** - Don't use generic lines like "I came across your business"
-   - Instead: "Saw you're a {category} in {location}" or "Noticed your {rating}-star rating"
+3. **Social Proof / Why Now** (1 sentence):
+   - Reference their success if they have good ratings:
+     * "With your {rating}-star rating, you're clearly doing something right."
+   - OR mention industry-specific pain point:
+     * "Most {category}s struggle with [specific problem]."
 
-4. **Get to the point FAST** - 3-4 sentences MAX
-   - Why you're reaching out
-   - What you can offer (be specific to their industry)
-   - Ask to be connected to owner/manager
+4. **Call-to-Action** (1 sentence):
+   - Direct question or request
+   - Ask to connect with owner/decision maker
+   - Examples:
+     * "Could you forward this to the owner or whoever handles [marketing/growth/partnerships]?"
+     * "Would you be open to a quick 15-minute call?"
+     * "Who's the best person to chat with about this?"
 
-5. **Ask for right person** - End with:
-   - "Could you pass this to whoever handles [specific area]?"
-   - "Who's the best person to talk to about this?"
+TONE:
+- Conversational (like texting a colleague)
+- Direct and honest (no fluff)
+- Respectful (asking for permission, not demanding)
+- Professional but NOT corporate
 
 AVOID:
 - "I came across your business" (too generic)
 - "I was impressed by" (sounds fake)
-- Long paragraphs
-- Corporate speak like "synergy" or "solutions"
-- Being vague about what you do
+- "Transform/Revolutionize/Unlock" (marketing BS)
+- Long paragraphs (keep it skimmable)
+- Vague claims without specifics
 
 SUBJECT LINE:
 - 25-40 characters max
-- Reference their specific location or category
-- Examples: "Question for {business_name[:15]}", "Quick idea for {city} {category}s"
-
-EXAMPLES OF GOOD OPENINGS:
-- "Hey - saw you're running a {category} in {location}."
-- "Quick question about {business_name}..."
-- "Noticed {business_name}'s {rating}-star rating..."
+- Reference their location or category
+- Create curiosity
+- Examples: "Quick Q for {business_name[:15]}", "{city} {category}s", "Question about {business_name[:20]}"
 
 Return JSON format:
 {{
-  "icebreaker": "your short, personalized email (3-4 sentences)",
+  "icebreaker": "COMPLETE email body (5-7 sentences covering opener, value prop, social proof, CTA)",
   "subject_line": "direct subject line (25-40 chars)"
 }}
 """
@@ -545,12 +554,22 @@ Return JSON format:
             
         except Exception as e:
             logging.error(f"Error generating B2B icebreaker: {e}")
-            # Fallback B2B message - keep it conversational
-            fallback_opening = f"Hey - noticed {business_name} is a {category or 'business'}" + (f" in {location}" if 'location' in locals() and location and location != "your area" else "")
-            fallback_ask = "Could you pass this to the owner or whoever handles new partnerships?"
+            # Fallback B2B message - COMPLETE email body
+            location_str = f" in {location}" if 'location' in locals() and location and location != "your area" else ""
+            rating_str = f" with a {rating}-star rating" if 'rating' in locals() and rating else ""
+
+            fallback_email = f"""Hey - noticed {business_name} is a {category or 'business'}{location_str}{rating_str}.
+
+We help local {category or 'businesses'} [your value proposition here - be specific to their industry].
+
+[Add 1-2 sentences about what you do and how it helps {category} businesses specifically.]
+
+Could you forward this to the owner or whoever handles new partnerships?
+
+Thanks!"""
 
             return {
-                "icebreaker": f"{fallback_opening}.\n\nWe help local {category or 'businesses'} [explain what you do]. Quick question - {fallback_ask}\n\nThanks!",
+                "icebreaker": fallback_email,
                 "subject_line": f"Quick Q for {business_name[:15]}"
             }
     
