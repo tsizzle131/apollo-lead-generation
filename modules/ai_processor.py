@@ -139,14 +139,15 @@ class AIProcessor:
             logging.error(f"Error generating page summary: {e}")
             return "no content"
     
-    def generate_icebreaker(self, contact_info: Dict[str, Any], website_summaries: List[str]) -> Dict[str, str]:
+    def generate_icebreaker(self, contact_info: Dict[str, Any], website_summaries: List[str], organization_data: Dict[str, Any] = None) -> Dict[str, str]:
         """
         Generate a personalized icebreaker AND subject line for a contact
-        
+
         Args:
             contact_info: Contact information dictionary
             website_summaries: List of website page summaries
-            
+            organization_data: Organization/product information (product_name, product_description, value_proposition, etc.)
+
         Returns:
             Dictionary with 'icebreaker' and 'subject_line' keys
         """
@@ -167,7 +168,7 @@ class AIProcessor:
             
             # If it's a business contact or generic email, use B2B approach
             if is_business_contact or is_generic_email or email_status == 'business_email':
-                return self._generate_b2b_icebreaker(contact_info, website_summaries)
+                return self._generate_b2b_icebreaker(contact_info, website_summaries, organization_data)
             
             # Otherwise use normal personalized approach
             # Prepare contact profile
@@ -234,38 +235,117 @@ class AIProcessor:
                 prompt_with_values = prompt_with_values.replace('{{location}}', location)
                 prompt_with_values = prompt_with_values.replace('{{website_summaries}}', website_content)
             
-            # Enhanced prompt that requests both icebreaker and subject line
-            enhanced_prompt = prompt_with_values + variation_instructions + "\n" + connection_style + """
+            # Add random subject line style variation
+            subject_line_styles = [
+                "curiosity-gap", "value-driven", "specific-observation",
+                "pattern-interrupt", "direct-benefit", "social-proof",
+                "location-specific", "industry-insight", "unexpected-angle"
+            ]
+            chosen_style = random.choice(subject_line_styles)
 
-ADDITIONALLY, create a compelling email subject line that:
-1. Is 30-50 characters MAX (mobile-optimized)
-2. Be DIRECT and create genuine curiosity
-3. Avoid clickbait and marketing speak
+            # Enhanced prompt that DEMANDS unique, high-converting subject lines
+            enhanced_prompt = prompt_with_values + variation_instructions + "\n" + connection_style + f"""
 
-Subject line approaches (pick what feels most natural):
-- Question format: "Quick question about [Company]'s [specific thing]"
-- Observation: "Noticed [Company]'s [specific approach/strategy]"
-- Connection: "[Company] + [relevant solution/topic]?"
-- Direct with name: "[Name], question about [specific area]"
-- Specific reference (ONLY if highly relevant): Recent funding/news/expansion
+CRITICAL: CREATE A UNIQUE, HIGH-CONVERTING EMAIL SUBJECT LINE
 
-BAD examples (avoid these):
-- "[Company]'s edge in [industry]" (too vague)
-- "Transform your [thing]" (sounds spammy)
-- "Unlock growth potential" (generic marketing)
+MANDATORY REQUIREMENTS:
+1. Length: 25-45 characters (mobile-optimized)
+2. Style for this email: {chosen_style.upper().replace('-', ' ')}
+3. MUST be UNIQUE - NO GENERIC PATTERNS ALLOWED
+4. Use SPECIFIC details from the business (location, category, rating, name)
 
-GOOD examples (aim for these):
-- "Mike, quick question about GrowthLab's SEO"
-- "Noticed GrowthLab's content strategy"
-- "GrowthLab + scaling B2B outreach?"
-- "Question about your SaaS clients"
-- "Congrats on the Series B!" (only if they actually raised funding)
+❌ ABSOLUTELY FORBIDDEN PATTERNS (do NOT use these):
+- "Inquiry for [X]" or "Inquiry about [X]"
+- "Quick question about [X]"
+- "Question about [X]"
+- "Re: [X]"
+- "Regarding [X]"
+- "[Company]'s [thing]"
+- Any variation of "quick question"
+- Generic greetings like "Hello" or "Hi there"
+
+✅ REQUIRED PERSONALIZATION - Pick ONE approach and execute it PERFECTLY:
+
+1. LOCATION-SPECIFIC (if location available):
+   - "[City] [category] owners listen up"
+   - "Your [category] spot in [City]"
+   - "[Neighborhood] [business type] idea"
+   Example: "Brooklyn cafe owners listen up"
+
+2. RATING/REPUTATION (if rating >= 4.0):
+   - "Your [rating]★ secret?"
+   - "[X] stars - here's how to 5"
+   - "Top-rated [category] in [city]"
+   Example: "Your 4.8★ secret?"
+
+3. CATEGORY-SPECIFIC INSIGHT:
+   - "[Category] revenue trick"
+   - "Most [category]s miss this"
+   - "[Category] automation FYI"
+   Example: "Restaurant revenue trick"
+
+4. PATTERN INTERRUPT:
+   - "[Business name] → more [desired outcome]"
+   - "re: your [category] biz"
+   - "[Business] question from [your name]"
+   Example: "Joe's Coffee → more walk-ins"
+
+5. SOCIAL PROOF:
+   - "17 [category]s use this"
+   - "[City] [category]s switching to..."
+   - "Your competitor just did this"
+   Example: "17 dentists use this"
+
+6. VALUE-SPECIFIC:
+   - "3x more [outcome] for [category]"
+   - "[Category] bookings system"
+   - "Save [X] hours weekly"
+   Example: "3x more orders for restaurants"
+
+7. CURIOSITY WITH SPECIFICITY:
+   - "What [X] [category]s know"
+   - "[Business] missing out?"
+   - "This helps busy [category] owners"
+   Example: "What top cafes know"
+
+8. UNEXPECTED ANGLE:
+   - "Your [category] website issue"
+   - "[Business] Google visibility"
+   - "Noticed [Business]'s [specific thing]"
+   Example: "Your restaurant's Google ranking"
+
+COMPOSITION RULES:
+- Use numbers when possible (3x, 17, 5 stars)
+- Reference their specific business name OR category (not both)
+- If they have location, use it creatively
+- If they have high rating, reference it
+- Be conversational, not corporate
+- Create curiosity WITHOUT clickbait
+- Test would YOU open this email?
+
+EXAMPLES OF HIGH-CONVERTING SUBJECT LINES:
+- "Brooklyn pizza spot opportunity" (location + category)
+- "Your 4.9★ reviews → more sales" (rating + benefit)
+- "Dental practice automation FYI" (category + value)
+- "23 NYC cafes switched" (social proof + location)
+- "Joe's Diner visibility issue" (name + specific problem)
+- "Austin restaurant owners" (location + category)
+- "Your competitor just did this" (competitive angle)
+- "Bakery order system upgrade" (category + specific)
+
+QUALITY CHECK - Your subject line MUST:
+✓ Be 25-45 characters
+✓ Use at LEAST ONE specific detail (name/location/category/rating)
+✓ NOT use any forbidden patterns
+✓ Create genuine curiosity
+✓ Sound natural when read aloud
+✓ Be different from "inquiry" or "question" patterns
 
 Return your response in this EXACT JSON format:
-{
+{{
   "icebreaker": "your personalized icebreaker message",
-  "subject_line": "your direct, curiosity-driven subject line (30-50 chars)"
-}"""
+  "subject_line": "your unique, high-converting subject line (25-45 chars)"
+}}"""
             
             messages = [
                 {
@@ -395,31 +475,39 @@ Return your response in this EXACT JSON format:
             return f"Hi {first_name},\n\nCame across your profile and thought there might be some interesting synergy with what we're working on.\n\nWould you be open to a brief conversation?"
     
     def _create_fallback_subject(self, first_name: str, company_name: str = None) -> str:
-        """Create a fallback subject line with variety"""
+        """Create a fallback subject line with variety - NO GENERIC PATTERNS"""
         import random
         if company_name and len(company_name) > 3:
             # Truncate company name if needed
             short_company = company_name[:20] if len(company_name) > 20 else company_name
             return random.choice([
-                f"Quick question about {short_company}",
-                f"{first_name}, about {short_company[:15]}",
-                f"{short_company} + automation?",
+                f"{short_company} → more customers",
+                f"{short_company} automation FYI",
                 f"Idea for {short_company}",
-                f"{short_company} growth opportunity",
+                f"{short_company} growth system",
+                f"Your {short_company[:15]} biz",
+                f"{short_company} competitive edge",
+                f"{first_name} - {short_company[:12]} tip",
             ])
         else:
             return random.choice([
-                f"Quick question, {first_name}",
                 f"{first_name}, 30 seconds?",
                 f"Idea for you, {first_name}",
-                f"{first_name} - quick thought",
+                f"{first_name} - quick tip",
                 f"Relevant for you, {first_name}",
+                f"{first_name}, saw your profile",
+                f"{first_name} opportunity",
             ])
     
-    def _generate_b2b_icebreaker(self, contact_info: Dict[str, Any], website_summaries: List[str]) -> Dict[str, str]:
+    def _generate_b2b_icebreaker(self, contact_info: Dict[str, Any], website_summaries: List[str], organization_data: Dict[str, Any] = None) -> Dict[str, str]:
         """
         Generate a B2B icebreaker for business contacts (not individual decision makers)
         This is used when we have generic business emails like info@, contact@, etc.
+
+        Args:
+            contact_info: Contact/business information
+            website_summaries: Website content summaries
+            organization_data: The sender's organization/product information
         """
         try:
             # Reload config
@@ -448,11 +536,31 @@ Return your response in this EXACT JSON format:
 
             website_content = "\n".join(website_summaries) if website_summaries else "No specific website content available"
 
+            # Extract organization product information
+            product_info = ""
+            if organization_data:
+                product_name = organization_data.get('product_name', '')
+                product_description = organization_data.get('product_description', '')
+                value_proposition = organization_data.get('value_proposition', '')
+                target_audience = organization_data.get('target_audience', '')
+                messaging_tone = organization_data.get('messaging_tone', 'professional')
+
+                product_info = f"""
+YOUR PRODUCT/SERVICE INFORMATION:
+Product/Service: {product_name if product_name else 'Not specified'}
+Description: {product_description if product_description else 'Not specified'}
+Value Proposition: {value_proposition if value_proposition else 'Not specified'}
+Target Audience: {target_audience if target_audience else 'Not specified'}
+Tone: {messaging_tone}
+
+IMPORTANT: Use the above product information to craft your value proposition. Be specific about YOUR product/service and how it helps THEIR industry ({category}).
+"""
+
             # Enhanced B2B prompt - Generate COMPLETE email body
             b2b_prompt = f"""
 You're reaching out to a LOCAL BUSINESS via their general business email (info@, contact@, hello@, etc.).
 
-BUSINESS DETAILS:
+PROSPECT BUSINESS DETAILS:
 Name: {business_name}
 Type: {category}
 Location: {location}
@@ -462,6 +570,8 @@ Website: {website}
 
 WEBSITE CONTENT (if available):
 {website_content}
+
+{product_info}
 
 YOUR GOAL: Write a COMPLETE, personalized B2B email body (NOT just an opener). The user will only add their signature.
 
@@ -475,13 +585,11 @@ EMAIL STRUCTURE (5-7 sentences total):
      * "Caught your {category} business in {location} on Google Maps."
 
 2. **Value Proposition** (2-3 sentences):
-   - Be SPECIFIC to their industry ({category})
-   - Explain WHAT you do and HOW it helps {category} businesses
+   - Use YOUR PRODUCT INFORMATION above to explain what you offer
+   - Connect YOUR product/service to THEIR industry ({category}) specifically
+   - Be SPECIFIC - use details from your product description and value proposition
    - Use plain language - no buzzwords
-   - Examples for different industries:
-     * Restaurants: "We help restaurants in {location} get more online orders/reservations"
-     * Dentists: "We help dental practices fill their schedules with high-value patients"
-     * Retail: "We help local shops compete with big box stores online"
+   - Make it relevant to {category} businesses in {location}
 
 3. **Social Proof / Why Now** (1 sentence):
    - Reference their success if they have good ratings:
@@ -510,16 +618,41 @@ AVOID:
 - Long paragraphs (keep it skimmable)
 - Vague claims without specifics
 
-SUBJECT LINE:
-- 25-40 characters max
-- Reference their location or category
-- Create curiosity
-- Examples: "Quick Q for {business_name[:15]}", "{city} {category}s", "Question about {business_name[:20]}"
+SUBJECT LINE REQUIREMENTS - CRITICAL:
+Length: 25-40 characters max
+
+❌ FORBIDDEN (do NOT use):
+- "Quick Q for [X]"
+- "Question about [X]"
+- "Inquiry for [X]"
+- Any "question" pattern
+
+✅ REQUIRED - Use ONE of these approaches:
+1. Location + Category: "{city} {category}s"
+   Example: "Austin restaurant owners"
+
+2. Category + Benefit: "{category} [specific outcome]"
+   Example: "Dental practice automation"
+
+3. Rating + Action: "Your {rating}★ reviews?"
+   Example: "Your 4.8★ reviews?"
+
+4. Social Proof: "[X] {category}s switched"
+   Example: "23 cafes switched"
+
+5. Pattern Interrupt: "[Business name] → more [outcome]"
+   Example: "Joe's → more customers"
+
+6. Problem-Specific: "{category} [specific issue]"
+   Example: "Restaurant online orders"
+
+Pick the MOST RELEVANT approach based on available data (location, rating, category).
+Make it SPECIFIC and UNIQUE - NOT generic.
 
 Return JSON format:
 {{
   "icebreaker": "COMPLETE email body (5-7 sentences covering opener, value prop, social proof, CTA)",
-  "subject_line": "direct subject line (25-40 chars)"
+  "subject_line": "unique, specific subject line (25-40 chars, NO 'question' patterns)"
 }}
 """
             
@@ -555,22 +688,38 @@ Return JSON format:
         except Exception as e:
             logging.error(f"Error generating B2B icebreaker: {e}")
             # Fallback B2B message - COMPLETE email body
-            location_str = f" in {location}" if 'location' in locals() and location and location != "your area" else ""
-            rating_str = f" with a {rating}-star rating" if 'rating' in locals() and rating else ""
+            # Safely extract variables (they may not be defined if error occurred early)
+            safe_business_name = contact_info.get('name', 'your business')
+            safe_category = contact_info.get('category', 'business')
+            safe_city = contact_info.get('city', '')
+            safe_location = contact_info.get('organization', {}).get('city', '') or safe_city
+            safe_rating = contact_info.get('rating')
 
-            fallback_email = f"""Hey - noticed {business_name} is a {category or 'business'}{location_str}{rating_str}.
+            location_str = f" in {safe_location}" if safe_location else ""
+            rating_str = f" with a {safe_rating}-star rating" if safe_rating else ""
 
-We help local {category or 'businesses'} [your value proposition here - be specific to their industry].
+            fallback_email = f"""Hey - noticed {safe_business_name} is a {safe_category}{location_str}{rating_str}.
 
-[Add 1-2 sentences about what you do and how it helps {category} businesses specifically.]
+We help local {safe_category} [your value proposition here - be specific to their industry].
+
+[Add 1-2 sentences about what you do and how it helps {safe_category} businesses specifically.]
 
 Could you forward this to the owner or whoever handles new partnerships?
 
 Thanks!"""
 
+            # Use random fallback subject instead of forbidden "Quick Q" pattern
+            import random
+            fallback_subjects = [
+                f"{safe_business_name[:20]} → more customers",
+                f"{safe_city} {safe_category[:15]}" if safe_city and safe_category else f"{safe_category[:20]} tip",
+                f"{safe_business_name[:15]} opportunity",
+                f"{safe_category[:20]} automation FYI" if safe_category else f"{safe_business_name[:20]} idea",
+                f"Idea for {safe_business_name[:18]}",
+            ]
             return {
                 "icebreaker": fallback_email,
-                "subject_line": f"Quick Q for {business_name[:15]}"
+                "subject_line": random.choice(fallback_subjects)
             }
     
     def _retry_icebreaker_generation(self, contact_info: dict, website_summaries: list, attempt: int) -> dict:

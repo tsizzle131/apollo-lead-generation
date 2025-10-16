@@ -728,9 +728,25 @@ class GmapsCampaignManager:
 
             if self.ai_processor:
                 try:
+                    # Fetch organization data for personalized icebreakers
+                    organization_data = None
+                    if campaign.get('organization_id'):
+                        try:
+                            org_result = self.db.client.table("organizations")\
+                                .select("product_name, product_description, value_proposition, target_audience, messaging_tone, industry")\
+                                .eq("id", campaign['organization_id'])\
+                                .single()\
+                                .execute()
+                            if org_result.data:
+                                organization_data = org_result.data
+                                logging.info(f"📋 Using organization product info: {organization_data.get('product_name', 'N/A')}")
+                        except Exception as e:
+                            logging.warning(f"Could not fetch organization data: {e}")
+
                     # Get all businesses with emails for icebreaker generation
+                    # CRITICAL: Include ALL fields needed for personalized subject lines
                     businesses_with_emails = self.db.client.table("gmaps_businesses")\
-                        .select("id, name, website, email, email_source, category")\
+                        .select("id, name, website, email, email_source, category, city, state, rating, reviews_count, description")\
                         .eq("campaign_id", campaign_id)\
                         .not_.is_("email", "null")\
                         .execute()
@@ -800,10 +816,11 @@ class GmapsCampaignManager:
                                     'reviews_count': business.get('reviews_count')
                                 }
 
-                                # Generate icebreaker
+                                # Generate icebreaker with organization data
                                 icebreaker_result = self.ai_processor.generate_icebreaker(
                                     contact_info,
-                                    website_summaries
+                                    website_summaries,
+                                    organization_data
                                 )
 
                                 if icebreaker_result and icebreaker_result.get('icebreaker'):
