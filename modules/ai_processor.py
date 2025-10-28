@@ -538,7 +538,9 @@ Return your response in this EXACT JSON format:
 
             # Extract organization product information
             product_info = ""
+            company_name = ""
             if organization_data:
+                company_name = organization_data.get('name', '')
                 product_name = organization_data.get('product_name', '')
                 product_description = organization_data.get('product_description', '')
                 value_proposition = organization_data.get('value_proposition', '')
@@ -547,13 +549,17 @@ Return your response in this EXACT JSON format:
 
                 product_info = f"""
 YOUR PRODUCT/SERVICE INFORMATION:
+Company Name: {company_name if company_name else 'Not specified'}
 Product/Service: {product_name if product_name else 'Not specified'}
 Description: {product_description if product_description else 'Not specified'}
 Value Proposition: {value_proposition if value_proposition else 'Not specified'}
 Target Audience: {target_audience if target_audience else 'Not specified'}
 Tone: {messaging_tone}
 
-IMPORTANT: Use the above product information to craft your value proposition. Be specific about YOUR product/service and how it helps THEIR industry ({category}).
+IMPORTANT:
+- When mentioning your company, use: "{company_name if company_name else 'we'}"
+- Use the above product information to craft your value proposition. Be specific about YOUR product/service and how it helps THEIR industry ({category}).
+- Be conversational and natural - you can say "we" instead of repeating the company name multiple times.
 """
 
             # Enhanced B2B prompt - Generate COMPLETE email body
