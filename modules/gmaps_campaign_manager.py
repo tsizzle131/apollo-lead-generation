@@ -8,8 +8,8 @@ Phase 2: Facebook email enrichment
 import logging
 import time
 import threading
-import concurrent.futures
-from typing import List, Dict, Any, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 from .coverage_analyzer import CoverageAnalyzer
 from .local_business_scraper import LocalBusinessScraper
@@ -18,6 +18,11 @@ from .linkedin_scraper_parallel import LinkedInScraperParallel
 from .bouncer_verifier import BouncerVerifier
 from .gmaps_supabase_manager import GmapsSupabaseManager
 from .ai_processor import AIProcessor
+import sys
+import os
+# Add parent directory to path to import api_costs
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from api_costs import get_service_cost
 
 class GmapsCampaignManager:
     # Phase timeout constants (in seconds)
@@ -51,12 +56,158 @@ class GmapsCampaignManager:
         self.running = False
         self.heartbeat_thread = None
 
+        # Thread-safe lock for parallel icebreaker generation
+        self._icebreaker_lock = threading.Lock()
+
+        # Parallel icebreaker configuration
+        self.ICEBREAKER_MAX_WORKERS = 5  # Number of parallel workers
+
         logging.info("✅ Google Maps Campaign Manager initialized with PARALLEL LinkedIn enrichment")
         if self.ai_processor:
             logging.info("✅ AI Processor initialized for icebreaker generation")
         else:
             logging.warning("⚠️ AI Processor not initialized - icebreakers will not be generated")
-    
+
+    def _process_single_icebreaker(
+        self,
+        business: Dict[str, Any],
+        campaign: Dict[str, Any],
+        organization_data: Optional[Dict[str, Any]],
+        web_scraper: Any,
+        idx: int,
+        total: int
+    ) -> Tuple[bool, str]:
+        """
+        Process a single business for icebreaker generation (thread worker).
+
+        Args:
+            business: Business record from database
+            campaign: Campaign record
+            organization_data: Organization context for personalization
+            web_scraper: WebScraper instance
+            idx: Current index (for logging)
+            total: Total count (for logging)
+
+        Returns:
+            Tuple of (success: bool, business_name: str)
+        """
+        business_name = business.get('name', 'Unknown Business')
+        website = business.get('website')
+        email = business.get('email')
+
+        try:
+            logging.info(f"  [{idx}/{total}] Processing: {business_name}")
+
+            # Scrape website for context if available
+            website_summaries = []
+            if website:
+                try:
+                    website_data = web_scraper.scrape_website_content(website)
+                    raw_summaries = website_data.get('summaries', [])
+
+                    # Convert summaries from dicts to strings
+                    if raw_summaries:
+                        for summary in raw_summaries:
+                            if isinstance(summary, dict):
+                                summary_text = summary.get('summary') or summary.get('content') or summary.get('abstract')
+                                if summary_text and summary_text != 'no content':
+                                    website_summaries.append(summary_text)
+                            elif isinstance(summary, str):
+                                if summary and summary != 'no content':
+                                    website_summaries.append(summary)
+
+                    logging.debug(f"    Scraped website: {len(website_summaries)} summaries")
+                except Exception as e:
+                    logging.debug(f"    Could not scrape website: {e}")
+
+            # Prepare contact info for AI with rich business context
+            contact_info = {
+                'first_name': business_name,
+                'last_name': 'Business Contact',
+                'name': business_name,
+                'email': email,
+                'headline': business.get('category', ''),
+                'company_name': business_name,
+                'is_business_contact': True,
+                'organization': {
+                    'name': business_name,
+                    'category': business.get('category', ''),
+                    'city': business.get('city', ''),
+                    'state': business.get('state', ''),
+                    'rating': business.get('rating'),
+                    'reviews_count': business.get('reviews_count'),
+                    'description': business.get('description', '')
+                },
+                'website_url': website,
+                'city': business.get('city', ''),
+                'state': business.get('state', ''),
+                'rating': business.get('rating'),
+                'reviews_count': business.get('reviews_count')
+            }
+
+            # Assign A/B test variant for this business
+            variant = self.ai_processor._assign_variant(
+                str(business['id']),
+                str(campaign['id'])
+            )
+
+            # Check if this is a perfect-fit prospect
+            target_categories = organization_data.get('target_categories', []) if organization_data else []
+            is_perfect_fit = self.ai_processor._is_perfect_fit(
+                business.get('category', ''),
+                target_categories
+            )
+
+            # Get campaign-level template selection (default: 'auto')
+            icebreaker_template = campaign.get('icebreaker_template', 'auto')
+
+            # Generate icebreaker with organization data and template
+            icebreaker_result = self.ai_processor.generate_icebreaker(
+                contact_info,
+                website_summaries,
+                organization_data,
+                icebreaker_template
+            )
+
+            if icebreaker_result and icebreaker_result.get('icebreaker'):
+                # Get template/formula used from the result
+                template_used = icebreaker_result.get('template_used', 'auto')
+                formula_used = icebreaker_result.get('formula_used', 'unknown')
+
+                # Build metadata for A/B testing analysis
+                icebreaker_metadata = {
+                    'is_perfect_fit': is_perfect_fit,
+                    'target_categories': target_categories,
+                    'prospect_category': business.get('category', ''),
+                    'prompt_version': '2.0',
+                    'has_website_content': bool(website_summaries),
+                    'formula_used': formula_used
+                }
+
+                # Save to database with variant and template tracking (thread-safe via Supabase)
+                self.db.client.table("gmaps_businesses")\
+                    .update({
+                        'icebreaker': icebreaker_result.get('icebreaker'),
+                        'subject_line': icebreaker_result.get('subject_line'),
+                        'icebreaker_generated_at': datetime.now().isoformat(),
+                        'icebreaker_variant': variant,
+                        'icebreaker_template': template_used,
+                        'icebreaker_metadata': icebreaker_metadata
+                    })\
+                    .eq('id', business['id'])\
+                    .execute()
+
+                fit_status = "🎯 perfect-fit" if is_perfect_fit else "📝 general"
+                logging.info(f"    [{idx}/{total}] ✅ Generated icebreaker ({template_used}/{formula_used}, {fit_status})")
+                return (True, business_name)
+            else:
+                logging.debug(f"    [{idx}/{total}] ⚠️ No icebreaker generated")
+                return (False, business_name)
+
+        except Exception as e:
+            logging.warning(f"    [{idx}/{total}] ⚠️ Failed to generate icebreaker for {business_name}: {e}")
+            return (False, business_name)
+
     def create_campaign(self, name: str, location: str, keywords: List[str], 
                        coverage_profile: str = "balanced", 
                        description: str = None) -> Dict[str, Any]:
@@ -120,7 +271,9 @@ class GmapsCampaignManager:
             zip_codes_with_keywords = []
             for zip_data in coverage_analysis["zip_codes"]:
                 zip_data["keywords"] = keywords
-                zip_data["estimated_cost"] = (zip_data.get("estimated_businesses", 250) / 1000) * 7
+                # Use centralized cost calculation
+                estimated_businesses = zip_data.get("estimated_businesses", 250)
+                zip_data["estimated_cost"] = get_service_cost("google_maps", estimated_businesses)
                 zip_codes_with_keywords.append(zip_data)
             
             added_count = self.db.add_campaign_coverage(campaign_id, zip_codes_with_keywords)
@@ -238,7 +391,9 @@ class GmapsCampaignManager:
                 zip_codes_with_keywords = []
                 for zip_data in coverage_analysis["zip_codes"]:
                     zip_data["keywords"] = campaign['keywords']
-                    zip_data["estimated_cost"] = (zip_data.get("estimated_businesses", 250) / 1000) * 7
+                    # Use centralized cost calculation
+                    estimated_businesses = zip_data.get("estimated_businesses", 250)
+                    zip_data["estimated_cost"] = get_service_cost("google_maps", estimated_businesses)
                     zip_codes_with_keywords.append(zip_data)
 
                 added_count = self.db.add_campaign_coverage(campaign_id, zip_codes_with_keywords)
@@ -272,101 +427,116 @@ class GmapsCampaignManager:
 
             gmaps_verified_emails = 0
 
-            for idx, zip_coverage in enumerate(coverage, 1):
-                zip_code = zip_coverage["zip_code"]
-                keywords = zip_coverage.get("keywords", campaign.get("keywords", []))
+            # Process ZIPs in batches of 10 for efficiency
+            batch_size = 10
+            for batch_idx in range(0, len(coverage), batch_size):
+                batch = coverage[batch_idx:batch_idx+batch_size]
+                zip_codes = [z["zip_code"] for z in batch]
 
-                logging.info(f"\n[{idx}/{len(coverage)}] Scraping ZIP: {zip_code}")
+                # Get keywords (assuming all ZIPs use same keywords)
+                keywords = batch[0].get("keywords", campaign.get("keywords", []))
 
-                # Scrape Google Maps for this ZIP
-                businesses = self._scrape_zip_code(
-                    zip_code=zip_code,
+                logging.info(f"\n🔄 Batching {len(zip_codes)} ZIP codes: {', '.join(zip_codes)}")
+
+                # Scrape all ZIPs in this batch at once
+                businesses_by_zip = self._scrape_zip_codes_batched(
+                    zip_codes=zip_codes,
                     keywords=keywords,
                     max_results=max_businesses_per_zip
                 )
 
-                if businesses:
-                    # Save businesses to database
-                    saved_count = self.db.save_businesses(businesses, campaign_id, zip_code)
+                # Process each ZIP's results
+                for idx_offset, zip_coverage in enumerate(batch):
+                    zip_code = zip_coverage["zip_code"]
+                    overall_idx = batch_idx + idx_offset + 1
 
-                    # CRITICAL FIX: Query actual count from database instead of trusting return value
-                    # This ensures we count the real deduplicated businesses saved
-                    actual_count_result = self.db.client.table("gmaps_businesses")\
-                        .select("id", count="exact")\
-                        .eq("campaign_id", campaign_id)\
-                        .eq("zip_code", zip_code)\
-                        .execute()
-                    saved_count = actual_count_result.count if actual_count_result.count is not None else saved_count
+                    logging.info(f"\n[{overall_idx}/{len(coverage)}] Processing ZIP: {zip_code}")
 
-                    # Get saved business IDs for verification
-                    saved_businesses = self.db.client.table("gmaps_businesses")\
-                        .select("id, email")\
-                        .eq("campaign_id", campaign_id)\
-                        .eq("zip_code", zip_code)\
-                        .eq("email_source", "google_maps")\
-                        .not_.is_("email", "null")\
-                        .execute()
+                    # Get businesses for this specific ZIP
+                    businesses = businesses_by_zip.get(zip_code, [])
 
-                    # Verify Google Maps emails
-                    if saved_businesses.data:
-                        logging.info(f"   🔍 Verifying {len(saved_businesses.data)} Google Maps emails...")
-                        for business in saved_businesses.data:
-                            try:
-                                email = business.get("email")
-                                if email:
-                                    verification = self.email_verifier.verify_email(email)
+                    if businesses:
+                        # Save businesses to database
+                        saved_count = self.db.save_businesses(businesses, campaign_id, zip_code)
 
-                                    if verification.get("is_safe"):
-                                        gmaps_verified_emails += 1
+                        # CRITICAL FIX: Query actual count from database instead of trusting return value
+                        # This ensures we count the real deduplicated businesses saved
+                        actual_count_result = self.db.client.table("gmaps_businesses")\
+                            .select("id", count="exact")\
+                            .eq("campaign_id", campaign_id)\
+                            .eq("zip_code", zip_code)\
+                            .execute()
+                        saved_count = actual_count_result.count if actual_count_result.count is not None else saved_count
 
-                                    # Save verification
-                                    self.db.update_google_maps_verification(
-                                        business_id=business["id"],
-                                        verification_data=verification
-                                    )
-                            except Exception as e:
-                                logging.warning(f"   Failed to verify email {email}: {e}")
-                                continue
+                        # Get saved business IDs for verification
+                        saved_businesses = self.db.client.table("gmaps_businesses")\
+                            .select("id, email")\
+                            .eq("campaign_id", campaign_id)\
+                            .eq("zip_code", zip_code)\
+                            .eq("email_source", "google_maps")\
+                            .not_.is_("email", "null")\
+                            .execute()
 
-                    # Count Facebook pages - check multiple fields where Facebook URLs might be
-                    facebook_count = sum(1 for b in businesses if (
-                        b.get("facebooks") or  # New field from enhanced scraping
-                        b.get("facebookUrl") or
-                        b.get("facebook") or
-                        (b.get("website") and "facebook.com" in str(b.get("website", "")).lower())
-                    ))
-                    email_count = sum(1 for b in businesses if b.get("email") or b.get("directEmails"))
+                        # Verify Google Maps emails
+                        if saved_businesses.data:
+                            logging.info(f"   🔍 Verifying {len(saved_businesses.data)} Google Maps emails...")
+                            for business in saved_businesses.data:
+                                try:
+                                    email = business.get("email")
+                                    if email:
+                                        verification = self.email_verifier.verify_email(email)
 
-                    # Calculate cost for this ZIP
-                    zip_cost = (len(businesses) / 1000) * 7
+                                        if verification.get("is_safe"):
+                                            gmaps_verified_emails += 1
 
-                    # Update coverage status
-                    self.db.update_coverage_status(
-                        campaign_id=campaign_id,
-                        zip_code=zip_code,
-                        businesses_found=saved_count,
-                        emails_found=email_count,
-                        actual_cost=zip_cost
-                    )
+                                        # Save verification
+                                        self.db.update_google_maps_verification(
+                                            business_id=business["id"],
+                                            verification_data=verification
+                                        )
+                                except Exception as e:
+                                    logging.warning(f"   Failed to verify email {email}: {e}")
+                                    continue
 
-                    # Update totals
-                    total_businesses += saved_count
-                    total_emails += email_count
-                    total_facebook_pages += facebook_count
-                    total_cost += zip_cost
+                        # Count Facebook pages - check multiple fields where Facebook URLs might be
+                        facebook_count = sum(1 for b in businesses if (
+                            b.get("facebooks") or  # New field from enhanced scraping
+                            b.get("facebookUrl") or
+                            b.get("facebook") or
+                            (b.get("website") and "facebook.com" in str(b.get("website", "")).lower())
+                        ))
+                        email_count = sum(1 for b in businesses if b.get("email") or b.get("directEmails"))
 
-                    logging.info(f"   ✅ Found {saved_count} businesses")
-                    logging.info(f"   📧 {email_count} have emails")
-                    logging.info(f"   ✅ {gmaps_verified_emails} verified emails")
-                    logging.info(f"   📘 {facebook_count} have Facebook pages")
+                        # Calculate cost for this ZIP
+                        zip_cost = (len(businesses) / 1000) * 7
 
-                    # Update ZIP code stats
-                    self.db.update_zip_code_stats(zip_code, saved_count)
-                else:
-                    logging.warning(f"   ❌ No businesses found")
+                        # Update coverage status
+                        self.db.update_coverage_status(
+                            campaign_id=campaign_id,
+                            zip_code=zip_code,
+                            businesses_found=saved_count,
+                            emails_found=email_count,
+                            actual_cost=zip_cost
+                        )
 
-                # Rate limiting between ZIPs
-                if idx < len(coverage):
+                        # Update totals
+                        total_businesses += saved_count
+                        total_emails += email_count
+                        total_facebook_pages += facebook_count
+                        total_cost += zip_cost
+
+                        logging.info(f"   ✅ Found {saved_count} businesses")
+                        logging.info(f"   📧 {email_count} have emails")
+                        logging.info(f"   ✅ {gmaps_verified_emails} verified emails")
+                        logging.info(f"   📘 {facebook_count} have Facebook pages")
+
+                        # Update ZIP code stats
+                        self.db.update_zip_code_stats(zip_code, saved_count)
+                    else:
+                        logging.warning(f"   ❌ No businesses found")
+
+                # Rate limiting between batches (not between individual ZIPs anymore)
+                if batch_idx + batch_size < len(coverage):
                     time.sleep(2)
 
             logging.info(f"\n📊 Phase 1 Summary:")
@@ -558,8 +728,8 @@ class GmapsCampaignManager:
                         logging.info(f"📧 Found {new_emails_found} new emails")
                         logging.info(f"✅ Verified {facebook_verified_emails} Facebook emails")
 
-                        # Track Facebook costs
-                        facebook_cost = (len(facebook_urls) / 1000) * 3
+                        # Track Facebook costs using centralized pricing
+                        facebook_cost = get_service_cost("facebook", len(facebook_urls))
                         self.db.track_api_cost(
                             campaign_id=campaign_id,
                             service="facebook",
@@ -677,9 +847,9 @@ class GmapsCampaignManager:
                         logging.info(f"  👤 New contacts found: {new_contacts_found}")
                         logging.info(f"  ✅ Verified emails: {verified_emails}")
 
-                        # Track LinkedIn costs
-                        linkedin_cost = (len(all_businesses) / 1000) * 10  # Estimated LinkedIn scraping cost
-                        bouncer_cost = (new_contacts_found / 1000) * 5  # Estimated Bouncer verification cost
+                        # Track LinkedIn costs using centralized pricing
+                        linkedin_cost = get_service_cost("linkedin", len(all_businesses))
+                        bouncer_cost = get_service_cost("bouncer", new_contacts_found)
 
                         try:
                             self.db.track_api_cost(
@@ -733,7 +903,7 @@ class GmapsCampaignManager:
                     if campaign.get('organization_id'):
                         try:
                             org_result = self.db.client.table("organizations")\
-                                .select("product_name, product_description, value_proposition, target_audience, messaging_tone, industry")\
+                                .select("product_name, product_description, value_proposition, target_audience, messaging_tone, industry, company_mission, core_values, company_story")\
                                 .eq("id", campaign['organization_id'])\
                                 .single()\
                                 .execute()
@@ -742,6 +912,28 @@ class GmapsCampaignManager:
                                 logging.info(f"📋 Using organization product info: {organization_data.get('product_name', 'N/A')}")
                         except Exception as e:
                             logging.warning(f"Could not fetch organization data: {e}")
+
+                    # Fetch product target_categories for perfect-fit matching
+                    if campaign.get('product_id'):
+                        try:
+                            product_result = self.db.client.table("products")\
+                                .select("target_categories, name, description, value_proposition")\
+                                .eq("id", campaign['product_id'])\
+                                .single()\
+                                .execute()
+                            if product_result.data and organization_data:
+                                # Add product target_categories to organization_data for ai_processor
+                                organization_data['target_categories'] = product_result.data.get('target_categories', [])
+                                # Override with product-specific data if available
+                                if product_result.data.get('name'):
+                                    organization_data['product_name'] = product_result.data['name']
+                                if product_result.data.get('description'):
+                                    organization_data['product_description'] = product_result.data['description']
+                                if product_result.data.get('value_proposition'):
+                                    organization_data['value_proposition'] = product_result.data['value_proposition']
+                                logging.info(f"📦 Using product target_categories: {organization_data.get('target_categories', [])}")
+                        except Exception as e:
+                            logging.warning(f"Could not fetch product data: {e}")
 
                     # Get all businesses with emails for icebreaker generation
                     # CRITICAL: Include ALL fields needed for personalized subject lines
@@ -758,96 +950,50 @@ class GmapsCampaignManager:
                         from .web_scraper import WebScraper
                         web_scraper = WebScraper()
 
+                        # PARALLEL ICEBREAKER GENERATION
+                        # Using ThreadPoolExecutor for ~4x speedup (tested with 5 workers)
+                        total_businesses = len(businesses_with_emails.data)
                         icebreakers_generated = 0
-                        for idx, business in enumerate(businesses_with_emails.data, 1):
-                            try:
-                                business_name = business.get('name', 'Unknown Business')
-                                website = business.get('website')
-                                email = business.get('email')
+                        start_time = time.time()
 
-                                logging.info(f"  [{idx}/{len(businesses_with_emails.data)}] {business_name}")
+                        logging.info(f"🚀 Starting PARALLEL icebreaker generation with {self.ICEBREAKER_MAX_WORKERS} workers...")
 
-                                # Scrape website for context if available
-                                website_summaries = []
-                                if website:
-                                    try:
-                                        website_data = web_scraper.scrape_website_content(website)
-                                        raw_summaries = website_data.get('summaries', [])
+                        with ThreadPoolExecutor(max_workers=self.ICEBREAKER_MAX_WORKERS) as executor:
+                            # Submit all jobs
+                            future_to_business = {
+                                executor.submit(
+                                    self._process_single_icebreaker,
+                                    business,
+                                    campaign,
+                                    organization_data,
+                                    web_scraper,
+                                    idx,
+                                    total_businesses
+                                ): (idx, business)
+                                for idx, business in enumerate(businesses_with_emails.data, 1)
+                            }
 
-                                        # Convert summaries from dicts to strings
-                                        if raw_summaries:
-                                            for summary in raw_summaries:
-                                                if isinstance(summary, dict):
-                                                    # Extract the 'summary' or 'content' field
-                                                    summary_text = summary.get('summary') or summary.get('content') or summary.get('abstract')
-                                                    if summary_text and summary_text != 'no content':
-                                                        website_summaries.append(summary_text)
-                                                elif isinstance(summary, str):
-                                                    if summary and summary != 'no content':
-                                                        website_summaries.append(summary)
+                            # Collect results as they complete
+                            for future in as_completed(future_to_business):
+                                idx, business = future_to_business[future]
+                                try:
+                                    success, business_name = future.result()
+                                    if success:
+                                        with self._icebreaker_lock:
+                                            icebreakers_generated += 1
+                                except Exception as e:
+                                    logging.warning(f"    ⚠️ Future failed for business {idx}: {e}")
 
-                                        logging.debug(f"    Scraped website: {len(website_summaries)} summaries")
-                                    except Exception as e:
-                                        logging.debug(f"    Could not scrape website: {e}")
+                                # Clean up to prevent memory leaks
+                                del future_to_business[future]
 
-                                # Prepare contact info for AI with rich business context
-                                contact_info = {
-                                    'first_name': business_name,
-                                    'last_name': 'Business Contact',
-                                    'name': business_name,
-                                    'email': email,
-                                    'headline': business.get('category', ''),
-                                    'company_name': business_name,
-                                    'is_business_contact': True,
-                                    # Add rich context for personalization
-                                    'organization': {
-                                        'name': business_name,
-                                        'category': business.get('category', ''),
-                                        'city': business.get('city', ''),
-                                        'state': business.get('state', ''),
-                                        'rating': business.get('rating'),
-                                        'reviews_count': business.get('reviews_count'),
-                                        'description': business.get('description', '')
-                                    },
-                                    'website_url': website,
-                                    'city': business.get('city', ''),
-                                    'state': business.get('state', ''),
-                                    'rating': business.get('rating'),
-                                    'reviews_count': business.get('reviews_count')
-                                }
+                        elapsed_time = time.time() - start_time
+                        avg_time_per_business = elapsed_time / total_businesses if total_businesses > 0 else 0
 
-                                # Generate icebreaker with organization data
-                                icebreaker_result = self.ai_processor.generate_icebreaker(
-                                    contact_info,
-                                    website_summaries,
-                                    organization_data
-                                )
-
-                                if icebreaker_result and icebreaker_result.get('icebreaker'):
-                                    # Save to database
-                                    self.db.client.table("gmaps_businesses")\
-                                        .update({
-                                            'icebreaker': icebreaker_result.get('icebreaker'),
-                                            'subject_line': icebreaker_result.get('subject_line'),
-                                            'icebreaker_generated_at': datetime.now().isoformat()
-                                        })\
-                                        .eq('id', business['id'])\
-                                        .execute()
-
-                                    icebreakers_generated += 1
-                                    logging.info(f"    ✅ Generated icebreaker")
-                                else:
-                                    logging.debug(f"    ⚠️ No icebreaker generated")
-
-                                # Rate limiting for OpenAI API
-                                time.sleep(2)
-
-                            except Exception as e:
-                                logging.warning(f"    ⚠️ Failed to generate icebreaker: {e}")
-                                continue
-
-                        logging.info(f"\n✅ Icebreaker Generation Complete:")
-                        logging.info(f"  🤖 Generated {icebreakers_generated}/{len(businesses_with_emails.data)} icebreakers")
+                        logging.info(f"\n✅ Icebreaker Generation Complete (PARALLEL):")
+                        logging.info(f"  🤖 Generated {icebreakers_generated}/{total_businesses} icebreakers")
+                        logging.info(f"  ⏱️  Total time: {elapsed_time:.1f}s ({avg_time_per_business:.1f}s avg per business)")
+                        logging.info(f"  🚀 Speedup: ~{self.ICEBREAKER_MAX_WORKERS}x vs sequential")
 
                     else:
                         logging.info("No businesses with emails found for icebreaker generation")
@@ -868,7 +1014,11 @@ class GmapsCampaignManager:
                 "total_emails_found": total_emails,
                 "total_facebook_pages_found": total_facebook_pages
             })
-            
+
+            # Refresh master leads database to include new data
+            logging.info("🔄 Refreshing master leads database...")
+            self.db.refresh_master_leads()
+
             # Generate summary
             summary = {
                 "campaign_id": campaign_id,
@@ -988,8 +1138,8 @@ class GmapsCampaignManager:
                 ))
                 email_count = sum(1 for b in businesses if b.get("email") or b.get("directEmails"))
 
-                # Calculate cost for this ZIP
-                zip_cost = (len(businesses) / 1000) * 7
+                # Calculate cost for this ZIP using centralized pricing
+                zip_cost = get_service_cost("google_maps", len(businesses))
 
                 # Update coverage status
                 self.db.update_coverage_status(
@@ -1079,7 +1229,58 @@ class GmapsCampaignManager:
                 continue
         
         return all_businesses
-    
+
+    def _scrape_zip_codes_batched(self, zip_codes: List[str], keywords: List[str], max_results: int) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Scrape multiple ZIP codes in a single batched call for all keywords.
+        Returns dict mapping ZIP codes to their businesses.
+
+        Args:
+            zip_codes: List of ZIP codes to scrape (max 10)
+            keywords: List of keywords to search
+            max_results: Max results per ZIP per keyword
+
+        Returns:
+            Dict mapping ZIP code -> list of businesses
+        """
+        businesses_by_zip = {}
+        seen_place_ids_by_zip = {zip_code: set() for zip_code in zip_codes}
+
+        for keyword in keywords:
+            try:
+                logging.info(f"   Batching {len(zip_codes)} ZIP codes for keyword: {keyword}")
+
+                # Call scraper with list of ZIPs (batched mode)
+                businesses = self.google_scraper._scrape_google_maps(
+                    search_query=keyword,
+                    location=zip_codes,  # List of ZIPs triggers batched mode
+                    max_results=max_results // len(keywords)
+                )
+
+                # Group businesses by their extracted ZIP code
+                for business in businesses:
+                    extracted_zip = business.get('extracted_zip', 'UNKNOWN')
+
+                    if extracted_zip == 'UNKNOWN':
+                        logging.warning(f"   Business has no extracted ZIP: {business.get('title', 'Unknown')}")
+                        continue
+
+                    # Initialize list for this ZIP if needed
+                    if extracted_zip not in businesses_by_zip:
+                        businesses_by_zip[extracted_zip] = []
+
+                    # Deduplicate by place_id
+                    place_id = business.get("placeId") or business.get("place_id")
+                    if place_id and place_id not in seen_place_ids_by_zip[extracted_zip]:
+                        seen_place_ids_by_zip[extracted_zip].add(place_id)
+                        businesses_by_zip[extracted_zip].append(business)
+
+            except Exception as e:
+                logging.error(f"   Error in batched scraping for {keyword}: {e}")
+                continue
+
+        return businesses_by_zip
+
     def _calculate_coverage_percentage(self, zip_count: int, profile: str) -> float:
         """Calculate coverage percentage based on profile"""
         profile_percentages = {

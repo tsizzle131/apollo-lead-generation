@@ -42,27 +42,18 @@ class InstantlyClient:
             response.raise_for_status()
             data = response.json()
 
-            # Log the raw response for debugging (using ERROR to ensure visibility)
-            logging.error(f"🔍 DEBUG: Raw API response type: {type(data)}")
-            logging.error(f"🔍 DEBUG: Raw API response: {data}")
-
             # Handle different response formats
             if isinstance(data, dict):
                 # Response might be wrapped in 'items', 'data', or 'accounts' field
                 accounts = data.get('items', data.get('data', data.get('accounts', [])))
-                logging.error(f"🔍 DEBUG: Extracted from dict - accounts: {len(accounts)} found")
             elif isinstance(data, list):
                 accounts = data
-                logging.error(f"🔍 DEBUG: Response is already a list: {accounts}")
             else:
                 logging.error(f"❌ Unexpected response format: {type(data)}")
-                logging.error(f"❌ Response: {data}")
                 raise ValueError(f"Unexpected response format from Instantly API: {type(data)}")
 
-            logging.error(f"🔍 DEBUG: Found {len(accounts)} email accounts total")
-            if accounts:
-                logging.error(f"🔍 DEBUG: First account structure: {accounts[0]}")
-            else:
+            logging.info(f"📧 Found {len(accounts)} email accounts")
+            if not accounts:
                 logging.warning(f"⚠️ No accounts found in response")
 
             return accounts
@@ -127,7 +118,14 @@ class InstantlyClient:
         Returns:
             Campaign details with ID
         """
-        # Default email sequence template using custom variables
+        # Default email sequence template
+        # NOTE: Instantly only preserves these merge fields in leads:
+        # - {{personalization}} - AI-generated icebreaker
+        # - {{firstName}}, {{lastName}} - Contact name
+        # - {{companyName}} - Business name
+        # - {{website}} - Business website
+        # - {{email}} - Email address
+        # Custom fields like subjectLine, businessLocation are NOT preserved by Instantly API
         default_sequence = [
             {
                 "steps": [
@@ -136,12 +134,10 @@ class InstantlyClient:
                         "position": 1,
                         "delay": 0,
                         "variants": [],
-                        "subject": "{{subject_line}}",
-                        "body": """Hi {{first_name}},
+                        "subject": "Quick question for {{companyName}}",
+                        "body": """Hi {{firstName}},
 
-{{icebreaker}}
-
-I noticed {{business_name}} in {{business_location}} and wanted to reach out.
+{{personalization}}
 
 Would you be open to a quick chat about how we might be able to help?
 
@@ -206,6 +202,7 @@ Best regards"""
 
     def bulk_add_leads(self, campaign_id: str,
                        leads: List[Dict[str, Any]],
+                       organization_id: str = None,
                        batch_size: int = 500) -> Dict[str, Any]:
         """
         Add leads individually to a campaign (Instantly API requires individual POST requests)
@@ -215,6 +212,7 @@ Best regards"""
         Args:
             campaign_id: Instantly campaign ID
             leads: List of lead objects with email and custom variables
+            organization_id: Instantly organization ID (required by API v2)
             batch_size: Ignored - kept for backward compatibility
 
         Returns:
@@ -231,11 +229,16 @@ Best regards"""
 
         # Process leads individually (Instantly API has no batch endpoint)
         for idx, lead in enumerate(leads, start=1):
-            # Add campaign ID to lead payload (API uses "campaign" not "campaign_id")
+            # Build payload with correct API v2 field names
+            # IMPORTANT: Use "campaign" (not "campaign_id") for lead-campaign association
             payload = {
-                "campaign": campaign_id,
+                "campaign": campaign_id,  # API v2 requires "campaign" field for association
                 **lead  # Merge lead data (email, first_name, last_name, etc.)
             }
+
+            # Add organization_id if provided (may be required by API)
+            if organization_id:
+                payload["organization_id"] = organization_id
 
             try:
                 response = self.session.post(
@@ -297,7 +300,7 @@ Best regards"""
             business: Business record from gmaps_businesses table
 
         Returns:
-            Formatted lead object with custom variables
+            Formatted lead object with curated fields for AI agent context
         """
         # Extract business info
         business_name = business.get("name", "Business")
@@ -305,31 +308,54 @@ Best regards"""
         city = business.get("city", "")
         state = business.get("state", "")
 
+        # Get contact info (from LinkedIn enrichment if available)
+        first_name = business.get("contact_first_name") or business_name
+        last_name = business.get("contact_last_name") or "Team"
+        job_title = business.get("contact_title") or business.get("decision_maker_title") or ""
+
         # Build location string
         location = ", ".join(filter(None, [city, state]))
 
-        # Format lead with custom variables for personalization
-        lead = {
-            "email": email,
-            "first_name": business_name,
-            "last_name": "Team",
-            "company_name": business_name,
-            "custom_variables": {
-                # AI-generated personalization
-                "icebreaker": business.get("icebreaker", ""),
-                "subject_line": business.get("subject_line", f"Quick question for {business_name}"),
+        # Get icebreaker for personalization
+        icebreaker = business.get("icebreaker", "")
 
-                # Business details for template variables
-                "business_name": business_name,
-                "business_category": business.get("category", ""),
-                "business_location": location,
-                "business_city": city,
-                "business_state": state,
-                "business_rating": str(business.get("rating", "")),
-                "business_reviews": str(business.get("reviews_count", "")),
-                "business_phone": business.get("phone", ""),
-                "business_website": business.get("website", ""),
-                "business_address": business.get("address", "")
+        # Get business context fields
+        rating = business.get("rating")
+        reviews_count = business.get("reviews_count")
+        category = business.get("category", "")
+        website = business.get("website", "")
+        estimated_employees = business.get("estimated_employees", "")
+        company_age_years = business.get("company_age_years")
+
+        # Format lead for Instantly API v2
+        # Standard fields at top level, custom fields in custom_variables
+        lead = {
+            # Required field
+            "email": email,
+
+            # Standard contact fields (snake_case)
+            "first_name": first_name,
+            "last_name": last_name,
+            "company_name": business_name,
+
+            # Personalization field - contains AI icebreaker
+            # In Instantly templates, use {{personalization}}
+            "personalization": icebreaker,
+
+            # Website field
+            "website": website,
+
+            # Custom variables - these get merged into payload for AI agent access
+            # In Instantly templates, use {{variableName}} syntax
+            "custom_variables": {
+                "jobTitle": job_title,
+                "industry": category,
+                "location": location,
+                "rating": str(rating) if rating else "",
+                "reviewCount": str(reviews_count) if reviews_count else "",
+                "employeeCount": estimated_employees or "",
+                "yearsInBusiness": str(company_age_years) if company_age_years else "",
+                "icebreaker": icebreaker,  # Also in custom_variables for AI agent
             }
         }
 
@@ -427,7 +453,7 @@ Best regards"""
 
         # Step 4: Bulk import
         logging.info(f"\n📤 Step 4: Importing leads to campaign...")
-        import_result = self.bulk_add_leads(campaign_id, leads)
+        import_result = self.bulk_add_leads(campaign_id, leads, organization_id=organization_id)
 
         # Summary
         summary = {

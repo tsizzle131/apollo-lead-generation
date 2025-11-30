@@ -8,7 +8,7 @@ import requests
 import logging
 import time
 import os
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 from urllib.parse import quote, urlparse
 from config import APIFY_API_KEY, MAX_RETRIES, REQUEST_TIMEOUT
 
@@ -281,17 +281,45 @@ class LocalBusinessScraper:
             traceback.print_exc()
             return []
     
-    def _scrape_google_maps(self, search_query: str, location: str, max_results: int) -> List[Dict[str, Any]]:
+    def _extract_zip_from_search_string(self, search_string: str) -> Optional[str]:
+        """
+        Extract ZIP code from Apify's searchString field.
+
+        Args:
+            search_string: Search string from Apify (e.g., "health store 23185")
+
+        Returns:
+            ZIP code string or None if not found
+
+        Examples:
+            "health store 23185" → "23185"
+            "salons 23693" → "23693"
+            "restaurants New York" → None
+        """
+        import re
+
+        # Match 5-digit ZIP code (with optional -4 extension)
+        match = re.search(r'\b(\d{5})(?:-\d{4})?\b', search_string)
+        if match:
+            return match.group(1)
+
+        # If no ZIP found, return None
+        return None
+
+    def _scrape_google_maps(self, search_query: str, location: Union[str, List[str]], max_results: int) -> List[Dict[str, Any]]:
         """Scrape businesses from Google Maps using Apify
-        
+
         Args:
             search_query: What to search for (e.g., "salons", "dentists")
             location: Can be:
-                - Zip code: "23602"
-                - City, State: "Newport News, VA"
-                - Address: "123 Main St, Newport News, VA"
-                - Coordinates: "37.0871,-76.4730"
-            max_results: Maximum number of results to return
+                - Single location string:
+                  - Zip code: "23602"
+                  - City, State: "Newport News, VA"
+                  - Address: "123 Main St, Newport News, VA"
+                  - Coordinates: "37.0871,-76.4730"
+                - List of ZIP codes for batched scraping: ["23185", "23693", "23188"]
+                  (batches up to 10 ZIPs per Apify run for efficiency)
+            max_results: Maximum number of results to return per location
         """
         try:
             endpoint = f"{self.base_url}/acts/{self.google_maps_actor}/runs"
@@ -341,13 +369,21 @@ class LocalBusinessScraper:
             }
             
             # Build search strings based on input
-            if location.lower() in ['usa', 'united states', 'us']:
+            if isinstance(location, list):
+                # BATCHED MODE: Multiple ZIP codes in one run (limit to 10 for safety)
+                zip_batch = location[:10]  # Limit to 10 ZIPs per Apify run
+                search_strings = [f"{search_query} {zip_code}" for zip_code in zip_batch]
+                payload["searchStringsArray"] = search_strings
+                logging.info(f"🔄 BATCHED MODE: {len(search_strings)} ZIP codes in one Apify run")
+                for zip_code in zip_batch:
+                    logging.info(f"   • {search_query} {zip_code}")
+            elif location.lower() in ['usa', 'united states', 'us']:
                 # Search entire USA by state
                 states = [
                     'Alabama', 'Alaska', 'Arizona', 'Arkansas', 'California', 'Colorado',
                     'Connecticut', 'Delaware', 'Florida', 'Georgia', 'Hawaii', 'Idaho',
                     'Illinois', 'Indiana', 'Iowa', 'Kansas', 'Kentucky', 'Louisiana',
-                    'Maine', 'Maryland', 'Massachusetts', 'Michigan', 'Minnesota', 
+                    'Maine', 'Maryland', 'Massachusetts', 'Michigan', 'Minnesota',
                     'Mississippi', 'Missouri', 'Montana', 'Nebraska', 'Nevada',
                     'New Hampshire', 'New Jersey', 'New Mexico', 'New York',
                     'North Carolina', 'North Dakota', 'Ohio', 'Oklahoma', 'Oregon',
@@ -369,7 +405,7 @@ class LocalBusinessScraper:
                 import re
                 zip_pattern = r'^\d{5}(-\d{4})?$'
                 is_zip = re.match(zip_pattern, location.strip())
-                
+
                 # Simple search without complex grid logic
                 search_term = f"{search_query} {location}"
                 payload["searchStringsArray"] = [search_term]
@@ -437,6 +473,19 @@ class LocalBusinessScraper:
             # Wait for completion and get results
             results = self._wait_for_run_completion(run_id, headers, "Google Maps")
             logging.info(f"📊 Raw Google Maps results: {len(results)} items")
+
+            # Extract ZIP code from searchString and add to each business
+            for business in results:
+                search_string = business.get('searchString', '')
+                if search_string:
+                    extracted_zip = self._extract_zip_from_search_string(search_string)
+                    business['extracted_zip'] = extracted_zip if extracted_zip else 'UNKNOWN'
+                    if not extracted_zip:
+                        logging.warning(f"Could not extract ZIP from searchString: {search_string}")
+                else:
+                    business['extracted_zip'] = 'UNKNOWN'
+                    logging.warning(f"Business has no searchString field: {business.get('title', 'Unknown')}")
+
             return results
             
         except Exception as e:

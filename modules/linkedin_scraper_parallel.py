@@ -554,17 +554,29 @@ class LinkedInScraperParallel:
 
     def _process_linkedin_profile(self, profile: Dict[str, Any], business: Dict[str, Any],
                                   linkedin_url: str, profile_type: str) -> Dict[str, Any]:
-        """Extract contact information from LinkedIn profile"""
+        """Extract contact information from LinkedIn profile with enhanced parsing"""
 
         # Extract person details
         if profile_type == 'company':
             person_name = profile.get('name', '')
             person_title = profile.get('industry', '') or 'Company'
+            headline = ''
         else:
             first_name = profile.get('firstName', '')
             last_name = profile.get('lastName', '')
             person_name = f"{first_name} {last_name}".strip() or profile.get('name', '')
-            person_title = profile.get('headline', '') or profile.get('title', '')
+            headline = profile.get('headline', '') or profile.get('title', '')
+            person_title = headline
+
+        # Parse contact name into first/last
+        parsed_name = self._parse_contact_name(person_name)
+        contact_first_name = parsed_name.get('first_name', '')
+        contact_last_name = parsed_name.get('last_name', '')
+
+        # Parse title and seniority from headline
+        parsed_headline = self._parse_title_from_headline(headline)
+        parsed_title = parsed_headline.get('title', '') or person_title
+        seniority_level = parsed_headline.get('seniority', 'Unknown')
 
         # Extract emails
         emails_found = []
@@ -574,7 +586,7 @@ class LinkedInScraperParallel:
             if email and email not in emails_found:
                 emails_found.append(email)
 
-        # Generate email patterns if needed
+        # Generate email patterns if needed (now with 18 patterns instead of 5)
         emails_generated = []
         website = business.get('website') or business.get('website_url', '')
 
@@ -590,13 +602,22 @@ class LinkedInScraperParallel:
             'linkedin_url': linkedin_url,
             'profile_type': profile_type,
             'linkedin_found': True,
+            # Original fields
             'person_name': person_name,
             'person_title': person_title,
             'person_profile_url': profile.get('url', '') or linkedin_url,
+            # NEW: Parsed contact name fields
+            'contact_first_name': contact_first_name,
+            'contact_last_name': contact_last_name,
+            # NEW: Parsed title and seniority
+            'contact_title': parsed_title,
+            'contact_seniority_level': seniority_level,
+            # Email fields
             'emails_found': emails_found,
             'emails_generated': emails_generated,
             'primary_email': primary_email,
             'email_source': email_source,
+            # Other fields
             'phone': profile.get('phone'),
             'company': profile.get('company', {}).get('name', '') if isinstance(profile.get('company'), dict) else '',
             'location': profile.get('location') or profile.get('headquarter', {}).get('city', '') if isinstance(profile.get('headquarter'), dict) else '',
@@ -624,7 +645,10 @@ class LinkedInScraperParallel:
         return url
 
     def _generate_email_patterns(self, full_name: str, website: str) -> List[str]:
-        """Generate common email patterns based on name and domain"""
+        """
+        Generate comprehensive email patterns based on name and domain.
+        Expanded from 5 to 18 patterns for better coverage.
+        """
         try:
             # Skip Google Maps URLs - these are not real business websites
             if 'google.com/maps' in website:
@@ -636,7 +660,8 @@ class LinkedInScraperParallel:
             domain = domain.replace('www.', '')
 
             # Skip social media and other non-business domains
-            invalid_domains = ['facebook.com', 'instagram.com', 'linkedin.com', 'twitter.com', 'google.com', 'youtube.com']
+            invalid_domains = ['facebook.com', 'instagram.com', 'linkedin.com', 'twitter.com',
+                             'google.com', 'youtube.com', 'yelp.com', 'tiktok.com']
             if any(invalid in domain for invalid in invalid_domains):
                 return []
 
@@ -645,27 +670,167 @@ class LinkedInScraperParallel:
                 return []
 
             first_name = name_parts[0].lower()
+            # Handle middle names - use actual last name
             last_name = name_parts[-1].lower() if len(name_parts) > 1 else ''
+            # Get first initial and last initial
+            first_initial = first_name[0] if first_name else ''
+            last_initial = last_name[0] if last_name else ''
 
             patterns = []
             if last_name:
+                # Most common patterns (prioritized by frequency in real-world usage)
                 patterns.extend([
-                    f"{first_name}@{domain}",
-                    f"{first_name}.{last_name}@{domain}",
-                    f"{first_name[0]}{last_name}@{domain}",
-                    f"{first_name}{last_name}@{domain}",
-                    f"{last_name}@{domain}",
-                    f"{first_name[0]}.{last_name}@{domain}",
+                    f"{first_name}@{domain}",                      # john@company.com
+                    f"{first_name}.{last_name}@{domain}",          # john.smith@company.com
+                    f"{first_name}{last_name}@{domain}",           # johnsmith@company.com
+                    f"{first_initial}{last_name}@{domain}",        # jsmith@company.com
+                    f"{last_name}@{domain}",                       # smith@company.com
+                    f"{first_initial}.{last_name}@{domain}",       # j.smith@company.com
+                    f"{first_name}_{last_name}@{domain}",          # john_smith@company.com
+                    f"{first_name}-{last_name}@{domain}",          # john-smith@company.com
+                    f"{last_name}.{first_name}@{domain}",          # smith.john@company.com
+                    f"{last_name}{first_name}@{domain}",           # smithjohn@company.com
+                    f"{last_name}{first_initial}@{domain}",        # smithj@company.com
+                    f"{first_initial}{last_initial}@{domain}",     # js@company.com
+                    f"{first_name}{last_initial}@{domain}",        # johns@company.com
+                    f"{last_name}_{first_name}@{domain}",          # smith_john@company.com
+                    f"{first_initial}_{last_name}@{domain}",       # j_smith@company.com
+                    f"{first_initial}-{last_name}@{domain}",       # j-smith@company.com
                 ])
             else:
                 patterns.append(f"{first_name}@{domain}")
 
-            patterns.extend([f"contact@{domain}", f"info@{domain}"])
-            return patterns[:5]
+            # Generic business emails (always useful)
+            patterns.extend([
+                f"contact@{domain}",
+                f"info@{domain}",
+            ])
+
+            return patterns[:18]  # Return up to 18 patterns
 
         except Exception as e:
             logging.debug(f"Error generating email patterns: {e}")
             return []
+
+    def _parse_title_from_headline(self, headline: str) -> Dict[str, str]:
+        """
+        Parse job title and company from LinkedIn headline.
+
+        Examples:
+            "CEO at Acme Corp" -> {"title": "CEO", "company": "Acme Corp"}
+            "Owner | Smith Dental" -> {"title": "Owner", "company": "Smith Dental"}
+            "Dr. John Smith, DDS - Dentist" -> {"title": "Dentist", "company": ""}
+        """
+        if not headline:
+            return {"title": "", "company": "", "seniority": "Unknown"}
+
+        title = ""
+        company = ""
+
+        # Common separators between title and company
+        separators = [' at ', ' @ ', ' | ', ' - ', ' for ', ' with ']
+
+        headline_lower = headline.lower()
+        for sep in separators:
+            if sep in headline_lower:
+                parts = headline.split(sep if sep == headline_lower else sep, 1)
+                if len(parts) == 2:
+                    title = parts[0].strip()
+                    company = parts[1].strip()
+                    break
+
+        # If no separator found, the whole headline might be a title
+        if not title:
+            title = headline.strip()
+
+        # Clean up common prefixes/suffixes
+        title = title.replace('Dr. ', '').replace('Dr ', '')
+
+        # Determine seniority level
+        seniority = self._determine_seniority(title)
+
+        return {
+            "title": title[:200],  # Limit length
+            "company": company[:200],
+            "seniority": seniority
+        }
+
+    def _determine_seniority(self, title: str) -> str:
+        """Determine seniority level from job title."""
+        if not title:
+            return "Unknown"
+
+        title_lower = title.lower()
+
+        # Owner/Executive level
+        if any(term in title_lower for term in [
+            'owner', 'founder', 'ceo', 'cfo', 'coo', 'cto', 'cmo', 'cio',
+            'president', 'principal', 'partner', 'proprietor', 'chairman',
+            'managing director', 'executive director', 'chief'
+        ]):
+            return "Owner/Executive"
+
+        # Director level
+        if any(term in title_lower for term in [
+            'director', 'vp', 'vice president', 'head of', 'svp', 'evp',
+            'senior vice', 'general manager', 'gm'
+        ]):
+            return "Director"
+
+        # Manager level
+        if any(term in title_lower for term in [
+            'manager', 'supervisor', 'lead', 'coordinator', 'administrator',
+            'team lead', 'senior manager', 'office manager', 'practice manager'
+        ]):
+            return "Manager"
+
+        # Professional/Specialist (doctors, lawyers, etc.)
+        if any(term in title_lower for term in [
+            'dentist', 'doctor', 'physician', 'attorney', 'lawyer', 'accountant',
+            'dds', 'dmd', 'md', 'do', 'esq', 'cpa', 'architect', 'engineer'
+        ]):
+            return "Owner/Executive"  # Often business owners in SMB context
+
+        # Staff level
+        if any(term in title_lower for term in [
+            'associate', 'assistant', 'specialist', 'analyst', 'representative',
+            'agent', 'technician', 'clerk', 'receptionist', 'hygienist'
+        ]):
+            return "Staff"
+
+        return "Unknown"
+
+    def _parse_contact_name(self, person_name: str) -> Dict[str, str]:
+        """
+        Parse first and last name from full name string.
+        Handles suffixes like Jr., III, PhD, DDS, etc.
+        """
+        if not person_name:
+            return {"first_name": "", "last_name": ""}
+
+        name_parts = person_name.strip().split()
+        if not name_parts:
+            return {"first_name": "", "last_name": ""}
+
+        if len(name_parts) == 1:
+            return {"first_name": name_parts[0], "last_name": ""}
+
+        # Common suffixes to handle
+        suffixes = ['jr', 'jr.', 'sr', 'sr.', 'ii', 'iii', 'iv', 'v',
+                   'phd', 'ph.d', 'md', 'm.d', 'dds', 'd.d.s', 'dmd', 'd.m.d',
+                   'esq', 'esq.', 'cpa', 'c.p.a']
+
+        # Check if last part is a suffix
+        last_part = name_parts[-1].lower().replace('.', '')
+        if last_part in [s.replace('.', '') for s in suffixes] and len(name_parts) > 2:
+            # Last name is second-to-last, append suffix
+            last_name = f"{name_parts[-2]} {name_parts[-1]}"
+            first_name = ' '.join(name_parts[:-2])
+        else:
+            last_name = name_parts[-1]
+            first_name = ' '.join(name_parts[:-1])
+
+        return {"first_name": first_name, "last_name": last_name}
 
     def _make_request_with_retry(self, url: str, method: str = "GET", **kwargs) -> Optional[requests.Response]:
         """Make HTTP request with retry logic and exponential backoff (thread-safe logging)"""

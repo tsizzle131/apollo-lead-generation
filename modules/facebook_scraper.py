@@ -15,10 +15,66 @@ class FacebookScraper:
         """Initialize Facebook scraper with Apify API"""
         self.api_key = api_key
         self.base_url = "https://api.apify.com/v2"
-        
+
         # Facebook Pages Scraper actor ID
         self.facebook_actor = "4Hv5RhChiaDk6iwad"
-        
+
+    def _calculate_company_age(self, creation_date: str) -> Optional[int]:
+        """
+        Calculate company age in years from Facebook creation_date.
+
+        Args:
+            creation_date: Date string like "June 11, 2011" or "2011-06-11"
+
+        Returns:
+            Integer years since creation, or None if parsing fails
+        """
+        if not creation_date:
+            return None
+
+        try:
+            from datetime import datetime
+            import re
+
+            # Try different date formats
+            date_formats = [
+                "%B %d, %Y",      # "June 11, 2011"
+                "%b %d, %Y",      # "Jun 11, 2011"
+                "%Y-%m-%d",       # "2011-06-11"
+                "%m/%d/%Y",       # "06/11/2011"
+                "%d/%m/%Y",       # "11/06/2011"
+            ]
+
+            parsed_date = None
+            for fmt in date_formats:
+                try:
+                    parsed_date = datetime.strptime(creation_date.strip(), fmt)
+                    break
+                except ValueError:
+                    continue
+
+            # Try to extract just the year if full parsing fails
+            if not parsed_date:
+                year_match = re.search(r'\b(19|20)\d{2}\b', creation_date)
+                if year_match:
+                    year = int(year_match.group())
+                    current_year = datetime.now().year
+                    return current_year - year
+
+            if parsed_date:
+                today = datetime.now()
+                age_years = today.year - parsed_date.year
+                # Adjust if birthday hasn't occurred this year
+                if (today.month, today.day) < (parsed_date.month, parsed_date.day):
+                    age_years -= 1
+                return max(0, age_years)
+
+            return None
+
+        except Exception as e:
+            logging.debug(f"Error calculating company age from '{creation_date}': {e}")
+            return None
+
     def enrich_with_facebook(self, facebook_urls: List[str], max_pages: int = 100) -> List[Dict[str, Any]]:
         """
         Extract emails and contact info from Facebook pages
@@ -270,12 +326,36 @@ class FacebookScraper:
             
             # Remove duplicate phone numbers
             enrichment["phone_numbers"] = list(set(enrichment["phone_numbers"]))
-            
+
+            # =====================================================
+            # Sprint 3: Extract additional Facebook data
+            # =====================================================
+
+            # Extract creation_date and calculate company_age_years
+            creation_date = page_data.get("creation_date")
+            if creation_date:
+                enrichment["creation_date"] = creation_date
+                company_age = self._calculate_company_age(creation_date)
+                if company_age:
+                    enrichment["company_age_years"] = company_age
+
+            # Extract rating data
+            enrichment["fb_rating_percent"] = page_data.get("ratingOverall")
+            enrichment["fb_rating_count"] = page_data.get("ratingCount")
+
+            # Extract ad status (indicates marketing activity)
+            ad_status = page_data.get("ad_status", "")
+            enrichment["is_running_ads"] = "currently running ads" in ad_status.lower() if ad_status else False
+
+            # Ensure likes/followers are captured
+            enrichment["page_likes"] = page_data.get("likes") or enrichment.get("page_likes")
+            enrichment["page_followers"] = page_data.get("followers") or enrichment.get("page_followers")
+
             if enrichment["primary_email"]:
                 logging.info(f"✅ Found email for {enrichment['page_name']}: {enrichment['primary_email']}")
             else:
                 logging.debug(f"❌ No email found for {enrichment['page_name']}")
-            
+
             return enrichment
             
         except Exception as e:

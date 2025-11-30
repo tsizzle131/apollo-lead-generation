@@ -11,6 +11,19 @@ from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 import openai
 from config import OPENAI_API_KEY, AI_MODEL_SUMMARY
+import sys
+import os
+import time
+# Add parent directory to path to import api_costs
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from api_costs import estimate_campaign_cost, ENRICHMENT_ASSUMPTIONS
+try:
+    from .zipcode_optimizer import ZIPCodeOptimizer
+    from .api_logger import get_api_logger
+except ImportError:
+    # Fallback for when lead_generation is in path (from execute_gmaps_campaign.py)
+    from modules.zipcode_optimizer import ZIPCodeOptimizer
+    from modules.api_logger import get_api_logger
 
 @dataclass
 class CoverageProfile:
@@ -27,7 +40,8 @@ class CoverageAnalyzer:
         """Initialize the coverage analyzer"""
         self.db = supabase_manager
         self.openai_client = openai.OpenAI(api_key=OPENAI_API_KEY)
-        
+        self.zip_optimizer = ZIPCodeOptimizer()
+
         # Define coverage profiles with smart limits
         self.profiles = {
             "budget": CoverageProfile(
@@ -50,7 +64,7 @@ class CoverageAnalyzer:
                 name="aggressive",
                 coverage_percentage=0.97,  # Target 97% coverage
                 min_zips=25,  # At least 25 ZIPs
-                max_zips=None,  # No hard limit
+                max_zips=100,  # Cap at 100 ZIPs (down from unlimited)
                 description="Complete market coverage - all relevant ZIP codes",
                 warning_threshold=50  # Warn if >50 ZIPs
             ),
@@ -167,6 +181,24 @@ CRITICAL FOR STATE SEARCHES:
 - DO NOT return just one ZIP per city - return ALL relevant commercial ZIPs in each city"""
 
         try:
+            # Log API request
+            api_logger = get_api_logger()
+            start_time = time.time()
+
+            request_data = {
+                "model": AI_MODEL_SUMMARY,
+                "location": location,
+                "keywords": keywords,
+                "profile": profile,
+                "max_zips": profile_config.max_zips,
+                "prompt_length": len(prompt),
+                "messages": [
+                    {"role": "system", "content": "You are a geographic data expert."},
+                    {"role": "user", "content": prompt[:500] + "..." if len(prompt) > 500 else prompt}
+                ],
+                "temperature": 0.3
+            }
+
             response = self.openai_client.chat.completions.create(
                 model=AI_MODEL_SUMMARY,
                 messages=[
@@ -176,8 +208,26 @@ CRITICAL FOR STATE SEARCHES:
                 temperature=0.3,
                 response_format={"type": "json_object"}
             )
-            
+
+            duration_ms = (time.time() - start_time) * 1000
             result = json.loads(response.choices[0].message.content)
+
+            # Estimate cost (rough estimate: ~$0.001 per 1000 tokens, assuming ~2000 tokens for coverage analysis)
+            estimated_cost = 0.002  # $0.002 per coverage analysis call
+
+            # Log API response
+            api_logger.log_api_call(
+                service="openai",
+                operation="coverage_analysis",
+                request_data=request_data,
+                response_data={
+                    "zip_count": len(result.get("zip_codes", [])),
+                    "location_type": result.get("location_type"),
+                    "total_estimated_businesses": result.get("total_estimated_businesses", 0)
+                },
+                duration_ms=duration_ms,
+                cost_usd=estimated_cost
+            )
             
             # Sort ZIP codes by combined score
             if "zip_codes" in result:
@@ -214,12 +264,13 @@ CRITICAL FOR STATE SEARCHES:
     
     def _smart_select_zips(self, all_zips: List[Dict], profile: CoverageProfile) -> Dict[str, Any]:
         """
-        Intelligently select ZIP codes to achieve coverage target
-        
+        Intelligently select ZIP codes to achieve coverage target with optimal spacing
+        Now includes distance-based filtering to minimize overlap
+
         Args:
             all_zips: All available ZIP codes sorted by score
             profile: Coverage profile with targets and limits
-            
+
         Returns:
             Dict with selected ZIPs and coverage metrics
         """
@@ -229,7 +280,7 @@ CRITICAL FOR STATE SEARCHES:
                 "coverage_percentage": 0,
                 "warning": "No ZIP codes available"
             }
-        
+
         # Calculate total businesses across all ZIPs
         total_businesses = sum(z.get("estimated_businesses", 0) for z in all_zips)
         if total_businesses == 0:
@@ -238,33 +289,65 @@ CRITICAL FOR STATE SEARCHES:
                 "coverage_percentage": 0,
                 "warning": "No business estimates available"
             }
-        
-        selected_zips = []
-        businesses_covered = 0
-        target_businesses = total_businesses * profile.coverage_percentage
-        
-        # First, ensure minimum ZIPs are included
-        for i in range(min(profile.min_zips, len(all_zips))):
-            selected_zips.append(all_zips[i])
-            businesses_covered += all_zips[i].get("estimated_businesses", 0)
-        
-        # Keep adding ZIPs until we reach coverage target or hit max limit
-        for i in range(profile.min_zips, len(all_zips)):
-            # Check if we've reached coverage target
-            if businesses_covered >= target_businesses:
-                break
-                
-            # Check if we've hit max limit
-            if profile.max_zips and len(selected_zips) >= profile.max_zips:
-                break
-                
-            # Add this ZIP
-            selected_zips.append(all_zips[i])
-            businesses_covered += all_zips[i].get("estimated_businesses", 0)
-        
-        # Calculate actual coverage percentage
+
+        # Determine optimal spacing based on profile and density
+        # Get average population density to determine spacing
+        avg_density = 0
+        density_count = 0
+        for zip_data in all_zips[:10]:  # Sample first 10 ZIPs
+            zipcode = zip_data.get('zip') or zip_data.get('zipcode')
+            if zipcode:
+                data = self.zip_optimizer.get_zipcode_data(zipcode)
+                if data and data.get('population_density'):
+                    avg_density += data['population_density']
+                    density_count += 1
+
+        if density_count > 0:
+            avg_density /= density_count
+            min_distance = self.zip_optimizer.get_optimal_spacing_for_density(avg_density)
+        else:
+            # Default spacing by profile
+            spacing_defaults = {
+                'budget': 5.0,
+                'balanced': 4.0,
+                'aggressive': 3.0,
+                'custom': 4.0
+            }
+            min_distance = spacing_defaults.get(profile.name, 4.0)
+
+        logging.info(f"📏 Using {min_distance} mile minimum spacing for optimal coverage")
+
+        # Use the optimizer's intelligent spacing algorithm
+        selected_zips = self.zip_optimizer.select_optimal_spacing(
+            candidate_zips=all_zips,
+            min_distance_miles=min_distance,
+            max_zips=profile.max_zips
+        )
+
+        # Ensure we meet minimum ZIP requirement
+        if len(selected_zips) < profile.min_zips and len(all_zips) >= profile.min_zips:
+            logging.info(f"⚠️ Only selected {len(selected_zips)} ZIPs with spacing, need {profile.min_zips}")
+            # Reduce spacing requirement and try again
+            selected_zips = self.zip_optimizer.select_optimal_spacing(
+                candidate_zips=all_zips,
+                min_distance_miles=min_distance * 0.7,  # 30% tighter
+                max_zips=profile.max_zips
+            )
+
+            # If still not enough, just take top N by score
+            if len(selected_zips) < profile.min_zips:
+                logging.info(f"Using top {profile.min_zips} ZIPs by score to meet minimum")
+                selected_zips = all_zips[:profile.min_zips]
+
+        # Calculate coverage metrics
+        businesses_covered = sum(z.get("estimated_businesses", 0) for z in selected_zips)
         coverage_percentage = (businesses_covered / total_businesses) * 100 if total_businesses > 0 else 0
-        
+
+        # Calculate overlap reduction metrics
+        original_count = len(all_zips)
+        selected_count = len(selected_zips)
+        reduction_percent = ((original_count - selected_count) / original_count * 100) if original_count > 0 else 0
+
         # Generate warnings
         warning = ""
         if len(selected_zips) >= profile.warning_threshold:
@@ -272,18 +355,29 @@ CRITICAL FOR STATE SEARCHES:
                 warning = f"⚠️ This campaign will search {len(selected_zips)} ZIP codes. Consider if a state-level search would be more appropriate."
             else:
                 warning = f"⚠️ Reached {len(selected_zips)} ZIP codes. Consider using '{profile.name}' profile or adjusting your location."
-        
+
         if coverage_percentage < (profile.coverage_percentage * 100) and profile.max_zips and len(selected_zips) >= profile.max_zips:
             warning += f" Note: Only achieved {coverage_percentage:.1f}% coverage due to ZIP limit."
-        
-        logging.info(f"📊 Selected {len(selected_zips)} ZIPs achieving {coverage_percentage:.1f}% coverage")
-        
+
+        # Get coverage metrics from optimizer
+        coverage_metrics = self.zip_optimizer.calculate_coverage_metrics(
+            [z.get('zip') or z.get('zipcode') for z in selected_zips if z.get('zip') or z.get('zipcode')]
+        )
+
+        logging.info(
+            f"📊 Selected {len(selected_zips)}/{len(all_zips)} ZIPs ({reduction_percent:.0f}% reduction) "
+            f"achieving {coverage_percentage:.1f}% coverage with {min_distance} mi spacing"
+        )
+
         return {
             "selected": selected_zips,
             "coverage_percentage": coverage_percentage,
             "warning": warning,
             "total_businesses_available": total_businesses,
-            "businesses_covered": businesses_covered
+            "businesses_covered": businesses_covered,
+            "overlap_reduction_percent": round(reduction_percent, 1),
+            "min_spacing_miles": min_distance,
+            "coverage_metrics": coverage_metrics
         }
     
     def _is_zip_code(self, location: str) -> bool:
@@ -432,18 +526,51 @@ CRITICAL FOR STATE SEARCHES:
                 "cities_analyzed": analyzed_count
             }
             
-            # For state analysis, DON'T apply smart selection limits again
-            # The individual city analyses already applied their limits
-            # We want ALL the ZIPs from all cities combined
+            # For state analysis, apply intelligent spacing to final combined results
+            # This reduces overlap between cities while maintaining coverage
             result["coverage_achieved"] = 95.0  # Estimate high coverage from multiple cities
             result["warning"] = ""
-            
-            # Only apply minimal filtering to remove low-scoring ZIPs
-            if len(unique_zips) > 500:  # Safety limit for extreme cases
-                # Keep top 500 by score
-                unique_zips = sorted(unique_zips, key=lambda x: x.get("combined_score", 0), reverse=True)[:500]
-                result["warning"] = "Limited to top 500 ZIP codes for practical reasons"
-            
+
+            # Apply intelligent spacing to reduce overlap
+            if len(unique_zips) > 50:
+                logging.info(f"🎯 Applying intelligent spacing to {len(unique_zips)} state-level ZIPs")
+
+                # Determine spacing based on profile
+                state_spacing = {
+                    'budget': 8.0,      # Wide spacing for budget
+                    'balanced': 6.0,    # Moderate spacing
+                    'aggressive': 4.0,  # Tighter spacing for aggressive
+                    'custom': 6.0
+                }
+                min_spacing = state_spacing.get(profile, 6.0)
+
+                # Get profile object for max limits
+                profile_obj = self.profiles.get(profile, self.profiles['balanced'])
+
+                # Apply optimal spacing
+                spaced_zips = self.zip_optimizer.select_optimal_spacing(
+                    candidate_zips=unique_zips,
+                    min_distance_miles=min_spacing,
+                    max_zips=profile_obj.max_zips
+                )
+
+                original_count = len(unique_zips)
+                final_count = len(spaced_zips)
+                reduction = ((original_count - final_count) / original_count * 100) if original_count > 0 else 0
+
+                logging.info(
+                    f"✨ State-level spacing: {original_count} → {final_count} ZIPs "
+                    f"({reduction:.0f}% reduction with {min_spacing} mi spacing)"
+                )
+
+                unique_zips = spaced_zips
+
+                if len(unique_zips) > profile_obj.warning_threshold:
+                    result["warning"] = (
+                        f"⚠️ Selected {len(unique_zips)} ZIPs across {analyzed_count} cities. "
+                        f"This is a large campaign - consider breaking into regional campaigns."
+                    )
+
             result["zip_codes"] = unique_zips
             
             return result
@@ -606,29 +733,32 @@ Focus on cities with significant commercial activity. There's no maximum limit f
         return analysis
     
     def _calculate_costs(self, analysis: Dict[str, Any]) -> Dict[str, Any]:
-        """Calculate estimated costs for the campaign"""
-        
+        """Calculate estimated costs for the campaign using centralized pricing"""
+
         if "zip_codes" not in analysis:
             return analysis
-        
+
         total_businesses = analysis.get("total_estimated_businesses", 0)
-        
-        # Apify pricing: ~$7 per 1000 Google Maps results
-        google_maps_cost = (total_businesses / 1000) * 7
-        
-        # Facebook scraping: ~$3 per 1000 pages (estimate 30% have Facebook)
-        facebook_pages = total_businesses * 0.3
-        facebook_cost = (facebook_pages / 1000) * 3
-        
+
+        # Use centralized cost estimation
+        costs = estimate_campaign_cost(
+            total_businesses=total_businesses,
+            include_facebook=True,
+            include_linkedin=True,
+            use_premium_linkedin=True  # Using bebity~linkedin-premium-actor
+        )
+
         analysis["cost_estimates"] = {
-            "google_maps_cost": round(google_maps_cost, 2),
-            "facebook_cost": round(facebook_cost, 2),
-            "total_cost": round(google_maps_cost + facebook_cost, 2),
-            "cost_per_business": round((google_maps_cost + facebook_cost) / total_businesses, 4) if total_businesses > 0 else 0,
-            "estimated_emails": int(total_businesses * 0.15),  # Estimate 15% email success rate
-            "cost_per_email": round((google_maps_cost + facebook_cost) / (total_businesses * 0.15), 2) if total_businesses > 0 else 0
+            "google_maps_cost": round(costs["google_maps_cost"], 2),
+            "facebook_cost": round(costs["facebook_cost"], 2),
+            "linkedin_cost": round(costs["linkedin_cost"], 2),
+            "bouncer_cost": round(costs["bouncer_cost"], 2),
+            "total_cost": round(costs["total_cost"], 2),
+            "cost_per_business": round(costs["cost_per_business"], 4),
+            "estimated_emails": costs["estimated_emails"],
+            "cost_per_email": round(costs["cost_per_email"], 2)
         }
-        
+
         return analysis
     
     def _fallback_analysis(self, location: str, keywords: List[str], profile: str) -> Dict[str, Any]:
@@ -676,10 +806,16 @@ Focus on cities with significant commercial activity. There's no maximum limit f
         total_cost = 0
         
         for zip_data in zip_codes:
-            # Estimate cost for this ZIP
+            # Estimate cost for this ZIP using centralized pricing
             businesses = zip_data.get("estimated_businesses", 250)
-            zip_cost = (businesses / 1000) * 7  # $7 per 1000 results
-            
+            zip_costs = estimate_campaign_cost(
+                total_businesses=businesses,
+                include_facebook=True,
+                include_linkedin=True,
+                use_premium_linkedin=True  # Using bebity~linkedin-premium-actor
+            )
+            zip_cost = zip_costs["total_cost"]
+
             if total_cost + zip_cost <= budget:
                 selected.append(zip_data)
                 total_cost += zip_cost

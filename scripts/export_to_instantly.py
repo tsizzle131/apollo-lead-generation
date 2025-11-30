@@ -23,11 +23,11 @@ logging.basicConfig(
 )
 
 def main():
-    """Export campaign to Instantly.ai"""
+    """Export campaign to Instantly.ai with automatic campaign creation"""
     parser = argparse.ArgumentParser(description='Export campaign to Instantly.ai')
     parser.add_argument('--campaign-id', required=True, help='Campaign ID to export')
     parser.add_argument('--campaign-name', required=True, help='Name for Instantly campaign')
-    parser.add_argument('--timezone', default='America/Los_Angeles', help='Timezone')
+    parser.add_argument('--timezone', default='America/Chicago', help='Timezone (IANA format)')
     parser.add_argument('--hours-from', default='09:00', help='Start time')
     parser.add_argument('--hours-to', default='17:00', help='End time')
     parser.add_argument('--api-key', required=True, help='Instantly.ai API key')
@@ -69,7 +69,7 @@ def main():
 
         logging.info(f"✅ Found {len(businesses)} businesses with emails")
 
-        # Export to Instantly
+        # Export to Instantly (automatic campaign creation)
         export_result = instantly.export_campaign(
             campaign_name=args.campaign_name,
             businesses=businesses,
@@ -78,7 +78,7 @@ def main():
             hours_to=args.hours_to
         )
 
-        # Save Instantly campaign ID to database (optional - for tracking)
+        # Save Instantly campaign ID to database (for tracking)
         try:
             db.client.table("gmaps_campaigns")\
                 .update({
