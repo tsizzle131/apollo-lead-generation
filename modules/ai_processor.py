@@ -1,8 +1,18 @@
 import logging
 import time
+import hashlib
+from enum import Enum
 from typing import List, Dict, Any, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from openai import OpenAI
+
+
+class IcebreakerVariant(Enum):
+    """Variants for A/B testing icebreaker prompts."""
+    CONTROL = "control"              # Legacy approach (for comparison)
+    PROSPECT_CENTRIC = "prospect"    # New 80/20 prospect-first approach (default)
+
+
 from config import (
     OPENAI_API_KEY, AI_MODEL_SUMMARY, AI_MODEL_ICEBREAKER,
     AI_TEMPERATURE, DELAY_BETWEEN_AI_CALLS, SUMMARY_PROMPT,
@@ -139,7 +149,7 @@ class AIProcessor:
             logging.error(f"Error generating page summary: {e}")
             return "no content"
     
-    def generate_icebreaker(self, contact_info: Dict[str, Any], website_summaries: List[str], organization_data: Dict[str, Any] = None) -> Dict[str, str]:
+    def generate_icebreaker(self, contact_info: Dict[str, Any], website_summaries: List[str], organization_data: Dict[str, Any] = None, template: str = None) -> Dict[str, str]:
         """
         Generate a personalized icebreaker AND subject line for a contact
 
@@ -147,9 +157,11 @@ class AIProcessor:
             contact_info: Contact information dictionary
             website_summaries: List of website page summaries
             organization_data: Organization/product information (product_name, product_description, value_proposition, etc.)
+            template: Icebreaker template to use (specific_question, peer_social_proof, website_insight,
+                      problem_agitation, curiosity_hook, direct_value, or 'auto' for weighted random)
 
         Returns:
-            Dictionary with 'icebreaker' and 'subject_line' keys
+            Dictionary with 'icebreaker', 'subject_line', 'template_used', and 'formula_used' keys
         """
         try:
             import random
@@ -168,7 +180,7 @@ class AIProcessor:
             
             # If it's a business contact or generic email, use B2B approach
             if is_business_contact or is_generic_email or email_status == 'business_email':
-                return self._generate_b2b_icebreaker(contact_info, website_summaries, organization_data)
+                return self._generate_b2b_icebreaker(contact_info, website_summaries, organization_data, template)
             
             # Otherwise use normal personalized approach
             # Prepare contact profile
@@ -397,8 +409,9 @@ Return your response in this EXACT JSON format:
                     subject_line = f"Quick question, {first_name}"
             
             # Ensure subject line isn't too long (trim if needed) - Bug #6 fix
-            if len(subject_line) > 50:
-                subject_line = subject_line[:47] + "..."
+            # RESEARCH: 40 chars max for mobile visibility (33 chars shows on most devices)
+            if len(subject_line) > 40:
+                subject_line = subject_line[:37] + "..."
             
             # Validate icebreaker content
             if not icebreaker or len(icebreaker) < 20:
@@ -498,22 +511,391 @@ Return your response in this EXACT JSON format:
                 f"{first_name}, saw your profile",
                 f"{first_name} opportunity",
             ])
-    
-    def _generate_b2b_icebreaker(self, contact_info: Dict[str, Any], website_summaries: List[str], organization_data: Dict[str, Any] = None) -> Dict[str, str]:
+
+    def _infer_pain_points(self, category: str, rating: float = None, reviews_count: int = None) -> str:
+        """Generate likely pain points based on business characteristics."""
+
+        # Category-specific pain points
+        CATEGORY_PAIN_MAP = {
+            "restaurant": [
+                "Managing online ordering across multiple platforms",
+                "No-shows eating into revenue",
+                "Staff turnover and training costs"
+            ],
+            "salon": [
+                "Last-minute cancellations",
+                "Retail product margins vs service time",
+                "Client retention between appointments"
+            ],
+            "spa": [
+                "Filling appointment gaps during slow periods",
+                "Upselling retail products to service clients",
+                "Competing with at-home wellness trends"
+            ],
+            "gym": [
+                "Member churn after January rush",
+                "Equipment maintenance costs",
+                "Class scheduling optimization"
+            ],
+            "yoga": [
+                "Class fill rates during off-peak hours",
+                "Teacher retention and scheduling",
+                "Competing with online yoga platforms"
+            ],
+            "chiropractor": [
+                "Patient retention after initial treatment",
+                "Insurance reimbursement delays",
+                "Converting one-time visits to care plans"
+            ],
+            "dentist": [
+                "Recall appointment no-shows",
+                "Patient anxiety management",
+                "Case acceptance for elective procedures"
+            ],
+            "wellness": [
+                "Service bundling complexity",
+                "Practitioner scheduling conflicts",
+                "Client education on complementary services"
+            ],
+            "health_food": [
+                "Competing with big-box retailers on price",
+                "Educating customers on new products",
+                "Managing inventory for niche products"
+            ],
+            "supplement": [
+                "Standing out among hundreds of similar products",
+                "Building customer trust in product quality",
+                "Competing with online retailers"
+            ],
+            "pharmacy": [
+                "Differentiation from chain pharmacies",
+                "Building front-end retail sales",
+                "Customer loyalty programs"
+            ],
+            "physical_therapy": [
+                "Patient compliance with home exercises",
+                "Insurance authorization delays",
+                "Converting acute care to wellness programs"
+            ],
+            "massage": [
+                "Filling weekday appointment slots",
+                "Retail product recommendations",
+                "Client retention and rebooking"
+            ],
+            "acupuncture": [
+                "Educating patients on treatment benefits",
+                "Building recurring treatment plans",
+                "Competing with conventional medicine"
+            ]
+        }
+
+        pain_points = []
+
+        # Get category-specific pains
+        if category:
+            category_lower = category.lower().replace('_', ' ').replace('-', ' ')
+            for key, pains in CATEGORY_PAIN_MAP.items():
+                if key in category_lower or category_lower in key:
+                    pain_points.extend(pains[:2])
+                    break
+
+        # Add size/reputation-based insights
+        if rating and rating < 4.0:
+            pain_points.append("Managing customer expectations and reviews")
+        elif rating and rating >= 4.5 and reviews_count and reviews_count > 100:
+            pain_points.append("Scaling while maintaining quality")
+
+        if reviews_count and reviews_count < 50:
+            pain_points.append("Building visibility and word-of-mouth")
+
+        if not pain_points:
+            pain_points = ["Standing out in a competitive local market", "Converting foot traffic to loyal customers"]
+
+        return "\n".join([f"- {p}" for p in pain_points[:3]])
+
+    def _is_perfect_fit(self, prospect_category: str, target_categories: list) -> bool:
+        """Check if prospect's category matches product's target categories."""
+        if not target_categories or not prospect_category:
+            return False
+
+        prospect_cat_lower = prospect_category.lower()
+        for target in target_categories:
+            target_lower = target.lower()
+            if target_lower in prospect_cat_lower or prospect_cat_lower in target_lower:
+                return True
+        return False
+
+    def _assign_variant(self, business_id: str, campaign_id: str = None) -> str:
         """
-        Generate a B2B icebreaker for business contacts (not individual decision makers)
-        This is used when we have generic business emails like info@, contact@, etc.
+        Deterministic variant assignment based on business ID.
+        Uses hash to ensure same business always gets same variant.
+
+        Args:
+            business_id: Unique business identifier
+            campaign_id: Optional campaign ID for campaign-specific variants
+
+        Returns:
+            Variant name string (e.g., 'control', 'prospect')
+        """
+        # Create hash input from business + campaign for deterministic assignment
+        hash_input = f"{business_id}:{campaign_id or 'default'}"
+        hash_value = int(hashlib.md5(hash_input.encode()).hexdigest(), 16)
+
+        # For now, 100% go to prospect-centric (the new approach)
+        # Can adjust percentages here for A/B testing:
+        # - 50/50 split: variants = [CONTROL, PROSPECT_CENTRIC], use hash_value % 2
+        # - 100% new: always return PROSPECT_CENTRIC
+
+        # Currently rolling out 100% to new approach
+        # To enable A/B testing, uncomment below:
+        # variants = [IcebreakerVariant.CONTROL, IcebreakerVariant.PROSPECT_CENTRIC]
+        # variant_index = hash_value % len(variants)
+        # return variants[variant_index].value
+
+        return IcebreakerVariant.PROSPECT_CENTRIC.value
+
+    def _get_formula_instructions(
+        self,
+        formula: str,
+        business_name: str,
+        category: str,
+        city: str,
+        rating: float,
+        reviews_count: int,
+        has_website_content: bool,
+        is_perfect_fit: bool,
+        product_description: str,
+        value_proposition: str
+    ) -> str:
+        """
+        Generate specific instructions based on the chosen icebreaker formula.
+
+        RESEARCH-BACKED TEMPLATES (2024-2025 data):
+        - Subject lines: 36-50 chars optimal, 33 chars for mobile visibility
+        - Personalization: +133% reply rate increase
+        - Question CTAs: 371% better than multiple CTAs
+        - Single CTA with <6 words performs best
+
+        Sources: Belkins 2025, Backlinko, Lemlist, Instantly benchmarks
+        """
+
+        # Build rating context if available
+        rating_context = ""
+        if rating and rating >= 4.5 and reviews_count and reviews_count > 50:
+            rating_context = f"\n- USE their strong reviews ({reviews_count} reviews, {rating} stars) as a compliment"
+        elif rating and reviews_count:
+            rating_context = f"\n- Can reference their {reviews_count} reviews or {rating}-star rating"
+
+        if formula == "WEBSITE_INSIGHT":
+            # RESEARCH: Website reference emails get 8-12% reply rate (Belkins)
+            return f"""
+APPROACH: Lead with something SPECIFIC you found on their website or reviews.
+- Pull out a unique detail: specific service, team member, recent news, their specialty
+- Show you actually looked (not just scraped data)
+- Connect to a genuine observation
+
+AVAILABLE DATA TO USE:{rating_context}
+- Business: {business_name}
+- Category: {category}
+- Location: {city}
+
+EXAMPLE OPENER:
+"{reviews_count} reviews at {rating} stars - patients clearly trust you. Reaching out because..."
+
+CTA (pick one, question format, under 6 words):
+- "Worth a look?"
+- "Curious?"
+- "Interested?"
+
+DO: Reference something specific they'd recognize
+DON'T: Start with "I noticed" or "I saw" (overused)
+"""
+
+        elif formula == "LOCAL_CONTEXT":
+            # RESEARCH: Local/geographic personalization increases relevance
+            return f"""
+APPROACH: Reference their local market naturally.
+- Mention {city} in a way that shows you know the area
+- Reference what other local businesses are doing
+- Position as someone who works with their market
+
+AVAILABLE DATA TO USE:{rating_context}
+- Business: {business_name}
+- Location: {city}
+
+EXAMPLE OPENER:
+"A few {city} {category}s started doing [X] this year. Thought you might find it useful."
+
+CTA (pick one, question format, under 6 words):
+- "Relevant for you?"
+- "Worth exploring?"
+- "Sound useful?"
+
+DO: Be specific about {city}
+DON'T: Pretend to be local if you're not
+"""
+
+        elif formula == "INDUSTRY_QUESTION":
+            # RESEARCH: Question-led subject lines get 46% open rate (Belkins)
+            return f"""
+APPROACH: Ask a genuine question about their business.
+- Lead with curiosity, not a pitch
+- Ask something they'll want to answer
+- Make it specific to {category}
+
+AVAILABLE DATA TO USE:{rating_context}
+- Category: {category}
+- Location: {city}
+
+EXAMPLE OPENER:
+"Do your patients ask for something to use between visits? Most {category}s I talk to get that question."
+
+CTA (keep it simple):
+- End with your question as the CTA
+- Don't add a second ask
+
+DO: Ask something relevant to their daily work
+DON'T: Ask leading questions that feel salesy
+"""
+
+        elif formula == "SOCIAL_PROOF":
+            # RESEARCH: Peer reference emails get 5-8% reply rate
+            return f"""
+APPROACH: Reference what similar businesses are doing.
+- Mention other {category}s (don't name competitors)
+- Be specific about what they're doing (not results you delivered)
+- Let them draw the connection
+
+AVAILABLE DATA TO USE:{rating_context}
+- Category: {category}
+- Location: {city}
+
+EXAMPLE OPENER:
+"A few {city} {category}s started [doing X] this year. Patients love having [Y]."
+
+CTA (pick one, question format, under 6 words):
+- "Worth a look?"
+- "On your radar?"
+- "Interested?"
+
+DO: Be genuine about what others are doing
+DON'T: Promise specific results or make claims you can't verify
+"""
+
+        elif formula == "DIRECT_VALUE":
+            # RESEARCH: Direct value gets 4-7% reply rate when highly relevant
+            return f"""
+APPROACH: State the value clearly and directly.
+- Lead with what they get, not what you do
+- Be specific to {category}
+- Keep it confident but not pushy
+
+AVAILABLE DATA TO USE:{rating_context}
+- Category: {category}
+- Value prop context: {value_proposition[:100] if value_proposition else 'Not specified'}
+
+EXAMPLE OPENER:
+"Helps {category}s [specific outcome]. Takes 2 minutes to see if it fits."
+
+CTA (pick one, question format, under 6 words):
+- "Worth 2 minutes?"
+- "Interested?"
+- "Want to see it?"
+
+DO: Be confident about the value
+DON'T: Promise to send catalogs, data, or materials (our AI handles replies)
+"""
+
+        elif formula == "CURIOSITY_HOOK":
+            # RESEARCH: Curiosity-based emails get 6-10% reply rate
+            return f"""
+APPROACH: Open with an intriguing observation.
+- Share something genuinely interesting about {category}s
+- Create curiosity without clickbait
+- Make them want to reply to learn more
+
+AVAILABLE DATA TO USE:{rating_context}
+- Category: {category}
+- Location: {city}
+
+EXAMPLE OPENER:
+"Noticed something about {city} {category}s lately. You seeing [trend/pattern] too?"
+
+CTA (pick one, question format, under 6 words):
+- "Curious?"
+- "Seeing this too?"
+- "Worth discussing?"
+
+DO: Be genuinely interesting
+DON'T: Use fake urgency or clickbait
+"""
+
+        elif formula == "PROBLEM_AGITATION":
+            # RESEARCH: PAS framework gets 5-9% reply rate
+            # FIXED: Don't infer names from business names
+            return f"""
+APPROACH: Name a specific pain point they'll recognize.
+- Identify a REAL challenge common to {category}s
+- Briefly mention what it costs them (time, patients, revenue)
+- Hint you have something that helps
+
+CATEGORY-SPECIFIC PAIN POINTS:
+- Chiropractor: Patients feel great after adjustment but relief fades before next visit
+- Dentist: Recall no-shows, case acceptance
+- Salon: Last-minute cancellations, rebooking
+- Restaurant: No-shows, platform fees
+- Physical therapy: Patient compliance between visits
+- General: Customer retention, follow-up gaps
+
+AVAILABLE DATA TO USE:{rating_context}
+- Category: {category}
+- Location: {city}
+
+EXAMPLE OPENER (DON'T use "Dr." unless you have their actual name):
+"One thing {category}s tell me: patients feel great leaving, but the relief fades before their next visit. Working on something that helps with that."
+
+CTA (pick one, question format, under 6 words):
+- "Worth exploring?"
+- "Relevant for you?"
+- "Open to a look?"
+
+DO: Be specific about the problem
+DON'T: Infer "Dr. [Name]" from business names - use generic greeting or skip the name
+DON'T: Promise to send data, catalogs, or samples in the email
+"""
+
+        else:
+            # Fallback
+            return f"""
+APPROACH: Keep it simple and conversational.
+- Make it specific to {category}
+- Show genuine interest
+- End with a simple question
+
+CTA: One question, under 6 words
+"""
+
+    def _generate_b2b_icebreaker(self, contact_info: Dict[str, Any], website_summaries: List[str], organization_data: Dict[str, Any] = None, template: str = None) -> Dict[str, str]:
+        """
+        Generate a B2B icebreaker for business contacts using varied approaches.
+
+        Uses 6 research-backed templates to achieve 4-8%+ reply rates.
+        Templates based on cold email studies (Belkins, Woodpecker, Backlinko, Gong).
 
         Args:
             contact_info: Contact/business information
             website_summaries: Website content summaries
             organization_data: The sender's organization/product information
+            template: Optional template override ('auto', 'specific_question', 'peer_social_proof',
+                      'website_insight', 'problem_agitation', 'curiosity_hook', 'direct_value')
         """
+        import random
+
         try:
             # Reload config
             reload_config()
             from config import AI_MODEL_ICEBREAKER, AI_TEMPERATURE
-            
+
             # Get business information with rich context
             business_name = contact_info.get('name') or contact_info.get('organization', {}).get('name', '')
             category = contact_info.get('organization', {}).get('category', '') or contact_info.get('category', '')
@@ -527,138 +909,194 @@ Return your response in this EXACT JSON format:
             # Format location nicely
             location = f"{city}, {state}" if city and state else city or state or "your area"
 
-            # Format reputation info
-            reputation_info = ""
-            if rating and reviews_count:
-                reputation_info = f"Rating: {rating}/5 stars from {reviews_count} reviews"
-            elif rating:
-                reputation_info = f"Rating: {rating}/5 stars"
+            website_content = "\n".join(website_summaries) if website_summaries else ""
+            has_website_content = bool(website_content and website_content.strip())
 
-            website_content = "\n".join(website_summaries) if website_summaries else "No specific website content available"
-
-            # Extract organization product information
-            product_info = ""
+            # Extract organization and product information
             company_name = ""
+            product_name = ""
+            product_description = ""
+            value_proposition = ""
+            target_categories = []
+
             if organization_data:
                 company_name = organization_data.get('name', '')
                 product_name = organization_data.get('product_name', '')
                 product_description = organization_data.get('product_description', '')
                 value_proposition = organization_data.get('value_proposition', '')
-                target_audience = organization_data.get('target_audience', '')
-                messaging_tone = organization_data.get('messaging_tone', 'professional')
+                target_categories = organization_data.get('target_categories', [])
 
-                product_info = f"""
-YOUR PRODUCT/SERVICE INFORMATION:
-Company Name: {company_name if company_name else 'Not specified'}
-Product/Service: {product_name if product_name else 'Not specified'}
-Description: {product_description if product_description else 'Not specified'}
-Value Proposition: {value_proposition if value_proposition else 'Not specified'}
-Target Audience: {target_audience if target_audience else 'Not specified'}
-Tone: {messaging_tone}
+            # Determine if this is a perfect-fit prospect
+            is_perfect_fit = self._is_perfect_fit(category, target_categories)
 
-IMPORTANT:
-- When mentioning your company, use: "{company_name if company_name else 'we'}"
-- Use the above product information to craft your value proposition. Be specific about YOUR product/service and how it helps THEIR industry ({category}).
-- Be conversational and natural - you can say "we" instead of repeating the company name multiple times.
-"""
+            # 6 RESEARCH-BACKED ICEBREAKER TEMPLATES
+            # Based on cold email studies (Belkins, Woodpecker, Backlinko, Gong)
+            # Each targets 4-8%+ reply rates vs 1-3% average
 
-            # Enhanced B2B prompt - Generate COMPLETE email body
+            # Template to formula mapping
+            TEMPLATE_TO_FORMULA = {
+                'specific_question': 'INDUSTRY_QUESTION',   # 6-10% reply rate (Backlinko)
+                'peer_social_proof': 'SOCIAL_PROOF',        # 5-8% reply rate (Single Grain)
+                'website_insight': 'WEBSITE_INSIGHT',       # 8-12% reply rate (Belkins)
+                'problem_agitation': 'PROBLEM_AGITATION',   # 5-9% reply rate (PAS framework)
+                'curiosity_hook': 'CURIOSITY_HOOK',         # 6-10% reply rate (Belkins)
+                'direct_value': 'DIRECT_VALUE',             # 4-7% reply rate (Authority principle)
+            }
+
+            formulas = [
+                "WEBSITE_INSIGHT",      # Lead with specific website detail - 8-12% reply rate
+                "LOCAL_CONTEXT",        # Reference their city/neighborhood
+                "INDUSTRY_QUESTION",    # Ask genuine question - 6-10% reply rate
+                "SOCIAL_PROOF",         # Reference similar businesses - 5-8% reply rate
+                "DIRECT_VALUE",         # Lead with specific benefit - 4-7% reply rate
+                "CURIOSITY_HOOK",       # Pattern interrupt opener - 6-10% reply rate
+                "PROBLEM_AGITATION",    # Name their pain point - 5-9% reply rate
+            ]
+
+            # Select formula based on template or weighted random
+            if template and template != 'auto' and template in TEMPLATE_TO_FORMULA:
+                chosen_formula = TEMPLATE_TO_FORMULA[template]
+                template_used = template
+            else:
+                # Weight formulas based on available data (auto mode)
+                weights = [
+                    3.0 if has_website_content else 0.5,  # WEBSITE_INSIGHT
+                    2.0 if city else 1.0,                  # LOCAL_CONTEXT
+                    2.0,                                   # INDUSTRY_QUESTION
+                    1.5,                                   # SOCIAL_PROOF
+                    2.0 if is_perfect_fit else 1.0,       # DIRECT_VALUE
+                    1.5,                                   # CURIOSITY_HOOK
+                    1.5,                                   # PROBLEM_AGITATION
+                ]
+                chosen_formula = random.choices(formulas, weights=weights, k=1)[0]
+                template_used = 'auto'
+
+            # Subject line style - randomly select to ensure variety
+            subject_styles = [
+                ("BUSINESS_NAME", f'Use "{business_name}" in the subject'),
+                ("CITY_CATEGORY", f'Use "{city} {category}" format'),
+                ("QUESTION", 'Ask a short question'),
+                ("RE_STYLE", f'Use "re: {business_name[:15]}" style (like a reply)'),
+                ("DIRECT", 'State the benefit directly'),
+                ("CURIOSITY", 'Create curiosity about something specific'),
+            ]
+            chosen_subject_style, subject_instruction = random.choice(subject_styles)
+
+            # Build formula-specific instructions
+            formula_instructions = self._get_formula_instructions(
+                chosen_formula,
+                business_name,
+                category,
+                city,
+                rating,
+                reviews_count,
+                has_website_content,
+                is_perfect_fit,
+                product_description,
+                value_proposition
+            )
+
+            # RESEARCH-BACKED B2B Prompt (2024-2025 data)
+            # Sources: Belkins, Backlinko, Lemlist, Instantly benchmarks
+            # Key findings:
+            # - 36-50 char subject lines optimal, 33 chars for mobile
+            # - Question CTAs 371% better than multiple CTAs
+            # - Personalization +133% reply rate
+            # - Single CTA under 6 words performs best
+
             b2b_prompt = f"""
-You're reaching out to a LOCAL BUSINESS via their general business email (info@, contact@, hello@, etc.).
+Write a cold email that sounds like a real person wrote it. Goal: Get a reply.
 
-PROSPECT BUSINESS DETAILS:
-Name: {business_name}
+============================================
+THEIR BUSINESS (personalize with this)
+============================================
+Business: {business_name}
 Type: {category}
-Location: {location}
-{reputation_info}
-{f"Description: {description}" if description else ""}
-Website: {website}
+Location: {city}, {state}
+Rating: {rating}/5 ({reviews_count} reviews)
 
-WEBSITE CONTENT (if available):
-{website_content}
+Website insights:
+{website_content if has_website_content else "No website content - use their category and location instead"}
 
-{product_info}
+============================================
+YOUR APPROACH FOR THIS EMAIL: {chosen_formula}
+============================================
+{formula_instructions}
 
-YOUR GOAL: Write a COMPLETE, personalized B2B email body (NOT just an opener). The user will only add their signature.
+============================================
+WHAT YOU'RE OFFERING (for context only)
+============================================
+Product: {product_description if product_description else 'Not specified'}
+Value: {value_proposition if value_proposition else 'Not specified'}
+Perfect fit: {'Yes - be confident' if is_perfect_fit else 'Maybe - ask first'}
 
-EMAIL STRUCTURE (5-7 sentences total):
-1. **Personalized Opener** (1-2 sentences):
-   - Reference specific details: location, rating, reviews, or website content
-   - Show you actually researched them
-   - Examples:
-     * "Hey - saw you're running a {category} in {location}."
-     * "Noticed {business_name}'s {rating}-star rating and {reviews_count} reviews."
-     * "Caught your {category} business in {location} on Google Maps."
+============================================
+WRITING RULES (critical for conversions)
+============================================
 
-2. **Value Proposition** (2-3 sentences):
-   - Use YOUR PRODUCT INFORMATION above to explain what you offer
-   - Connect YOUR product/service to THEIR industry ({category}) specifically
-   - Be SPECIFIC - use details from your product description and value proposition
-   - Use plain language - no buzzwords
-   - Make it relevant to {category} businesses in {location}
+**TONE:** Write like you're texting a business owner you respect but haven't met.
+- Short sentences. Casual punctuation.
+- No corporate speak. No buzzwords.
+- Sound like a person, not a company.
 
-3. **Social Proof / Why Now** (1 sentence):
-   - Reference their success if they have good ratings:
-     * "With your {rating}-star rating, you're clearly doing something right."
-   - OR mention industry-specific pain point:
-     * "Most {category}s struggle with [specific problem]."
+**LENGTH:** 3-4 sentences MAX. Under 60 words total.
+- Busy people delete long emails without reading
+- If you can cut a word, cut it
 
-4. **Call-to-Action** (1 sentence):
-   - Direct question or request
-   - Ask to connect with owner/decision maker
-   - Examples:
-     * "Could you forward this to the owner or whoever handles [marketing/growth/partnerships]?"
-     * "Would you be open to a quick 15-minute call?"
-     * "Who's the best person to chat with about this?"
+**STRUCTURE:**
+- Line 1: Hook them with something specific to THEM
+- Line 2: Connect it to what you do (briefly)
+- Line 3: Simple question CTA (under 6 words)
 
-TONE:
-- Conversational (like texting a colleague)
-- Direct and honest (no fluff)
-- Respectful (asking for permission, not demanding)
-- Professional but NOT corporate
+**ABSOLUTELY FORBIDDEN (instant spam folder):**
+- "Quick question" - spam trigger
+- "Hope this finds you well" - AI tell
+- "reaching out" or "wanted to connect" - salesy
+- "crushing it" - fake flattery
+- Starting with "I noticed" or "I saw" - overused
+- "businesses like yours" - too vague
+- Anything over 4 sentences
+- Using "Dr. [Name]" unless you have their ACTUAL name (not from business name)
+- Promising to send materials, data, catalogs, or samples
 
-AVOID:
-- "I came across your business" (too generic)
-- "I was impressed by" (sounds fake)
-- "Transform/Revolutionize/Unlock" (marketing BS)
-- Long paragraphs (keep it skimmable)
-- Vague claims without specifics
+**CTA RULES (CRITICAL - research shows this matters most):**
+- ONE question only, under 6 words
+- Must be a question (ends with ?)
+- Low commitment: "Worth a look?" "Curious?" "Interested?"
+- DO NOT offer to send anything specific
+- DO NOT mention calls, demos, or meetings in first email
 
-SUBJECT LINE REQUIREMENTS - CRITICAL:
-Length: 25-40 characters max
+**GOOD OPENERS (pick one style):**
+- Observation: "[X] reviews at [Y] stars - patients trust you..."
+- Question: "Do you [relevant action]?"
+- Peer: "A few {city} {category}s started..."
+- Problem: "One thing {category}s tell me..."
+- Direct: "[Product] helps {category}s [outcome]..."
 
-❌ FORBIDDEN (do NOT use):
-- "Quick Q for [X]"
-- "Question about [X]"
-- "Inquiry for [X]"
-- Any "question" pattern
+============================================
+SUBJECT LINE - MAX 40 CHARACTERS
+============================================
+STYLE: {chosen_subject_style}
+INSTRUCTION: {subject_instruction}
 
-✅ REQUIRED - Use ONE of these approaches:
-1. Location + Category: "{city} {category}s"
-   Example: "Austin restaurant owners"
+**HARD REQUIREMENTS:**
+- MAXIMUM 40 characters (mobile visibility)
+- Optimal: 25-35 characters
+- NO "Quick Q", "Quick question", or "Inquiry"
+- Create curiosity without clickbait
 
-2. Category + Benefit: "{category} [specific outcome]"
-   Example: "Dental practice automation"
+**EXAMPLES BY STYLE:**
+- BUSINESS_NAME: "saw {business_name[:12]}" (under 20 chars)
+- CITY_CATEGORY: "{city} {category[:8]}s" (location + category)
+- QUESTION: "between visits?" (short question)
+- RE_STYLE: "re: your practice" (looks like reply)
+- DIRECT: "patient take-home" (benefit focused)
+- CURIOSITY: "{category[:10]} trend" (industry hook)
 
-3. Rating + Action: "Your {rating}★ reviews?"
-   Example: "Your 4.8★ reviews?"
-
-4. Social Proof: "[X] {category}s switched"
-   Example: "23 cafes switched"
-
-5. Pattern Interrupt: "[Business name] → more [outcome]"
-   Example: "Joe's → more customers"
-
-6. Problem-Specific: "{category} [specific issue]"
-   Example: "Restaurant online orders"
-
-Pick the MOST RELEVANT approach based on available data (location, rating, category).
-Make it SPECIFIC and UNIQUE - NOT generic.
-
-Return JSON format:
+Return valid JSON:
 {{
-  "icebreaker": "COMPLETE email body (5-7 sentences covering opener, value prop, social proof, CTA)",
-  "subject_line": "unique, specific subject line (25-40 chars, NO 'question' patterns)"
+  "icebreaker": "your 3-4 sentence email (under 60 words, ending with question CTA)",
+  "subject_line": "25-40 characters MAX"
 }}
 """
             
@@ -685,10 +1123,14 @@ Return JSON format:
             # Parse JSON response
             import json
             parsed = json.loads(result)
-            
+
+            # Include which template was used for A/B tracking
+            parsed['template_used'] = template_used
+            parsed['formula_used'] = chosen_formula
+
             # Wait for rate limit
             rate_limiter.wait_for_openai(AI_MODEL_ICEBREAKER)
-            
+
             return parsed
             
         except Exception as e:
@@ -725,7 +1167,9 @@ Thanks!"""
             ]
             return {
                 "icebreaker": fallback_email,
-                "subject_line": random.choice(fallback_subjects)
+                "subject_line": random.choice(fallback_subjects),
+                "template_used": "fallback",
+                "formula_used": "fallback"
             }
     
     def _retry_icebreaker_generation(self, contact_info: dict, website_summaries: list, attempt: int) -> dict:
