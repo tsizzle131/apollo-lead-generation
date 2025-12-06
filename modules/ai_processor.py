@@ -689,8 +689,8 @@ Return your response in this EXACT JSON format:
         if formula == "WEBSITE_INSIGHT":
             # RESEARCH: Website reference emails get 8-12% reply rate (Belkins)
             return f"""
-APPROACH: Lead with something SPECIFIC you found on their website or reviews.
-- Pull out a unique detail: specific service, team member, recent news, their specialty
+APPROACH: Lead with something SPECIFIC you found on their website.
+- Pull out a unique detail: specific service, team member, specialty, technology they use
 - Show you actually looked (not just scraped data)
 - Connect to a genuine observation
 
@@ -699,40 +699,46 @@ AVAILABLE DATA TO USE:{rating_context}
 - Category: {category}
 - Location: {city}
 
-EXAMPLE OPENER:
-"{reviews_count} reviews at {rating} stars - patients clearly trust you. Reaching out because..."
+EXAMPLE OPENERS (pick ONE - vary the style):
+- "Saw on your site you specialize in [specific service]. Got something that pairs well with that."
+- "Your [specific page/service] caught my attention. Working on something that could help."
+- "The way you approach [thing from website] stood out. Quick question about that..."
 
 CTA (pick one, question format, under 6 words):
 - "Worth a look?"
 - "Curious?"
 - "Interested?"
 
-DO: Reference something specific they'd recognize
+DO: Reference something specific from their actual website content
+DON'T: Default to review counts - save that for variety
 DON'T: Start with "I noticed" or "I saw" (overused)
 """
 
         elif formula == "LOCAL_CONTEXT":
             # RESEARCH: Local/geographic personalization increases relevance
             return f"""
-APPROACH: Reference their local market naturally.
-- Mention {city} in a way that shows you know the area
-- Reference what other local businesses are doing
-- Position as someone who works with their market
+APPROACH: Reference their local market naturally - but DON'T start with "A few..."
+- Mention {city} in a unique way that shows you know the area
+- Position as someone who understands their specific market
+- Make it feel local and specific, not templated
 
 AVAILABLE DATA TO USE:{rating_context}
 - Business: {business_name}
 - Location: {city}
 
-EXAMPLE OPENER:
-"A few {city} {category}s started doing [X] this year. Thought you might find it useful."
+EXAMPLE OPENERS (pick ONE - DO NOT use "A few..." pattern):
+- "Working with {city} {category}s on something. Your approach stood out."
+- "{city}'s {category} scene is competitive. Got an edge that might help."
+- "Know the {city} market well - thought of {business_name} when building this."
+- "Seeing {city} {category}s focus more on [X] lately. You too?"
 
 CTA (pick one, question format, under 6 words):
 - "Relevant for you?"
 - "Worth exploring?"
 - "Sound useful?"
 
-DO: Be specific about {city}
-DON'T: Pretend to be local if you're not
+DO: Be specific about {city} - make it feel personal
+DON'T: Start with "A few {city}..." - that's the SOCIAL_PROOF formula
 """
 
         elif formula == "INDUSTRY_QUESTION":
@@ -761,7 +767,7 @@ DON'T: Ask leading questions that feel salesy
         elif formula == "SOCIAL_PROOF":
             # RESEARCH: Peer reference emails get 5-8% reply rate
             return f"""
-APPROACH: Reference what similar businesses are doing.
+APPROACH: Reference what similar businesses are doing - VARY the opening style.
 - Mention other {category}s (don't name competitors)
 - Be specific about what they're doing (not results you delivered)
 - Let them draw the connection
@@ -770,8 +776,11 @@ AVAILABLE DATA TO USE:{rating_context}
 - Category: {category}
 - Location: {city}
 
-EXAMPLE OPENER:
-"A few {city} {category}s started [doing X] this year. Patients love having [Y]."
+EXAMPLE OPENERS (pick ONE - vary the style each time):
+- "A few {city} {category}s started [doing X] this year. Patients love it."
+- "Other {category}s in your area are trying [X]. Getting good results."
+- "Talked to {category}s in {city} recently - they mentioned [problem]. You seeing that too?"
+- "Similar practices to yours have been asking about [X]. Thought you might be interested."
 
 CTA (pick one, question format, under 6 words):
 - "Worth a look?"
@@ -1066,12 +1075,39 @@ WRITING RULES (critical for conversions)
 - DO NOT offer to send anything specific
 - DO NOT mention calls, demos, or meetings in first email
 
-**GOOD OPENERS (pick one style):**
-- Observation: "[X] reviews at [Y] stars - patients trust you..."
-- Question: "Do you [relevant action]?"
-- Peer: "A few {city} {category}s started..."
-- Problem: "One thing {category}s tell me..."
-- Direct: "[Product] helps {category}s [outcome]..."
+**OPENER VARIETY (CRITICAL - pick ONE, DO NOT always use reviews):**
+
+IMPORTANT: Vary your opening style. If using reviews/ratings, limit to 30% of the time.
+
+Style A - Question Hook (best for engagement):
+"Do your patients ask for something to use between visits?"
+"Ever wonder why [competitor] gets more walk-ins?"
+
+Style B - Local Trend (builds credibility):
+"A few {city} {category}s started [doing X] this year..."
+"Noticed a trend among {city} {category}s lately..."
+
+Style C - Problem Lead (shows understanding):
+"One thing {category}s tell me: [specific pain point]..."
+"The biggest challenge I hear from {category} owners..."
+
+Style D - Website/Research Insight (when you have content):
+"Saw on your site that you [specific thing]..."
+"Your [specific service/page] caught my eye..."
+
+Style E - Direct Value (for perfect fits):
+"[Product] helps {category}s [specific outcome]..."
+"Quick way for {category}s to [benefit]..."
+
+Style F - Social Proof (sparingly):
+"[X] reviews at [rating] stars - clearly doing something right..."
+"Your [rating]-star rating stood out..."
+
+OPENER RULES:
+- NEVER start the same way twice in a batch
+- Style F (reviews) should be used sparingly
+- Styles A, B, C are highest-performing - use most often
+- Match the opener to the chosen FORMULA above
 
 ============================================
 SUBJECT LINE - MAX 40 CHARACTERS
